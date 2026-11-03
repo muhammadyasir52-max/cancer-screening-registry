@@ -3,21 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cervical Screening Dashboard</title>
+  <title>Cancer Screening Registry</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body data-stats-url="api/public/stats">
   <header>
-    <div class="wrap">
-      <h1>Cervical screening: public dashboard</h1>
-      <a class="staff-link" href="staff">Staff screens →</a>
+    <div class="wrap bar">
+      <div>
+        <h1>National Cancer Screening Registry</h1>
+        <div class="muted" id="country-line">Public dashboard · anonymised totals</div>
+      </div>
+      <nav class="site-nav"><a href="portal">Facility portal</a><a href="admin">Administration</a></nav>
     </div>
   </header>
   <main class="wrap">
     <div class="banner">
-      <strong>Demo only.</strong> Every figure here comes from a synthetic population: no real patients.
-      Figures are anonymised totals, and any count from 1 to <span id="threshold">4</span> is shown as “&lt;<span id="threshold2">5</span>”.
+      <strong>Demonstration with synthetic data.</strong> No real patients. Figures are anonymised totals; any count from 1 to
+      <span class="threshold-minus">4</span> is shown as “&lt;<span class="threshold">5</span>”, and percentages that would reveal a hidden count are hidden too.
     </div>
+
+    <div class="tabs" id="programme-tabs" role="tablist" aria-label="Screening programme"></div>
 
     <section class="grid" id="kpis" aria-label="Headline figures"></section>
 
@@ -27,8 +32,8 @@
         <div id="age"></div>
       </div>
       <div class="card">
-        <h2>Coverage by district</h2>
-        <div id="district"></div>
+        <h2>Coverage by province</h2>
+        <div id="province"></div>
       </div>
     </section>
 
@@ -38,14 +43,29 @@
         <div id="outcomes"></div>
       </div>
       <div class="card">
-        <h2>District detail</h2>
+        <div class="bar">
+          <h2>Districts</h2>
+          <label class="inline">Province
+            <select id="province-filter"></select>
+          </label>
+        </div>
         <div class="table-scroll"><table id="district-table"></table></div>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>How this registry handles data</h2>
+      <ul class="plain">
+        <li><strong>De-identified at the source.</strong> Hospitals and registries strip names, phone numbers and ID numbers on their own computers. The national registry only receives a keyed pseudonym, birth month, sex and district.</li>
+        <li><strong>Complements existing registries.</strong> Population cancer registries keep running; their diagnoses are linked by pseudonym so screening can be evaluated against outcomes.</li>
+        <li><strong>Every flow under an agreement.</strong> Organisations send or take data only under a signed data-sharing agreement, and every access is logged.</li>
+        <li><strong>Anonymised data out.</strong> This page shows suppressed totals. Approved researchers receive k-anonymous extracts only.</li>
+      </ul>
     </section>
     <p class="muted" id="generated"></p>
   </main>
   <footer class="wrap">
-    Coverage = eligible women (aged 25–64) whose screening is up to date. Prototype built on HL7 FHIR R4. MIT licence.
+    Open-source software owned by RHEAP and developed by BYTEBUZ. Built on HL7 FHIR R4. MIT licence.
   </footer>
   <script src="dashboard.js"></script>
 </body>

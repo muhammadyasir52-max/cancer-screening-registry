@@ -1,133 +1,156 @@
-// HTTP layer: a minimal FHIR R4 REST API, a few convenience endpoints for the
-// staff screens, the public statistics endpoint, and static files.
+// HTTP layer. Public: anonymised statistics, the country pack, static pages and
+// the browser-side ingest modules. Everything else needs an organisation API
+// key, is checked against the organisation's roles and data-sharing agreement,
+// and is written to the audit log.
 
 import { readFile } from 'node:fs/promises';
 import { join, normalize, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { timingSafeEqual } from 'node:crypto';
 import { RESOURCE_TYPES } from './store.js';
-import {
-  validate, patientIdOf, buildPatient, buildHpvObservation, buildCytologyObservation, buildColposcopy,
-  hpvResults, cytologyResults,
-} from './fhir.js';
-import { isoDate } from './rules.js';
+import { authenticate, hasRole, rolesOf, agreementCovers, createOrganization, describeOrg } from './auth.js';
+import { programmes } from './programmes/index.js';
 
-const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
+const PUBLIC_DIR = join(ROOT, 'public');
+const SRC_DIR = join(ROOT, 'src');
+// Source modules the browser may load (the de-identification pipeline).
+const BROWSER_MODULES = /^(fhir\.js|programmes\/\w+\.js|ingest\/\w+\.js)$/;
 const FHIR_JSON = 'application/fhir+json; charset=utf-8';
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
-const WRITABLE = ['Patient', 'Observation', 'Procedure']; // Flags are owned by the rules engine
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml' };
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+};
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-export function createApp(registry, { apiKey = null } = {}) {
-  const { store } = registry;
+export function createApp(registry) {
+  const { store, country } = registry;
 
-  const authorised = (req) => {
-    if (!apiKey) return true;
-    const given = Buffer.from((req.headers.authorization || '').replace(/^Bearer /, ''));
-    const want = Buffer.from(apiKey);
-    return given.length === want.length && timingSafeEqual(given, want);
+  const require = (org, ...roles) => {
+    if (!org) throw new HttpError(401, 'Missing or invalid API key');
+    if (!hasRole(org, ...roles)) throw new HttpError(403, `Requires role: ${roles.join(' or ')}`);
+    // No access of any kind outside an organisation's agreement period.
+    if (!agreementCovers(org, registry.todayIso())) throw new HttpError(403, 'No active data-sharing agreement');
   };
 
-  // Store a new resource and re-run the rules for the patient it concerns.
-  const ingest = (resource) => {
-    const problems = validate(resource);
-    if (problems.length) throw new HttpError(422, problems.join('; '));
-    if (resource.resourceType !== 'Patient' && !store.read('Patient', patientIdOf(resource))) {
-      throw new HttpError(422, `Unknown subject ${resource.subject.reference}`);
-    }
-    const saved = store.create(resource);
-    registry.refreshPatient(saved.resourceType === 'Patient' ? saved.id : patientIdOf(saved));
-    store.save();
-    return saved;
-  };
-
-  const nextRegistryId = () => `CSR-${String(store.all('Patient').length + 1).padStart(6, '0')}`;
-
-  async function handle(req, res) {
+  async function handle(req, res, ctx) {
     const url = new URL(req.url, 'http://localhost');
     const path = url.pathname.replace(/\/+$/, '') || '/';
     const method = req.method;
 
     // --- Public -----------------------------------------------------------
-    if (path === '/api/public/stats' && method === 'GET') return json(res, 200, registry.publicStats());
+    if (method === 'GET' && path === '/api/public/stats') return json(res, 200, registry.publicStats());
+    if (method === 'GET' && path === '/api/public/country') return json(res, 200, country);
+    if (method === 'GET' && path === '/fhir/metadata') return json(res, 200, capabilityStatement(), FHIR_JSON);
+    if (method === 'GET' && path.startsWith('/lib/')) return serveModule(res, path.slice(5));
     if (!path.startsWith('/fhir') && !path.startsWith('/api')) return serveStatic(res, path);
 
-    // --- Protected (identifiable data) -------------------------------------
-    if (!authorised(req)) throw new HttpError(401, 'Missing or invalid API key');
+    // --- Authenticated ----------------------------------------------------
+    const org = authenticate(store, req.headers.authorization);
+    ctx.org = org;
+    const isAdmin = rolesOf(org).includes('admin');
+    const today = registry.todayIso();
 
-    if (path === '/fhir/metadata' && method === 'GET') return json(res, 200, capabilityStatement(), FHIR_JSON);
+    if (method === 'GET' && path === '/api/me') {
+      require(org, 'submitter', 'facility', 'consumer');
+      return json(res, 200, describeOrg(org));
+    }
+
+    if (method === 'POST' && path === '/fhir') {
+      require(org, 'submitter');
+      const body = await readJson(req);
+      const source = String(req.headers['x-submission-source'] || 'api').slice(0, 120);
+      return json(res, 200, registry.ingestTransaction(body, org, { source }), FHIR_JSON);
+    }
 
     const fhir = path.match(/^\/fhir\/([A-Za-z]+)(?:\/([\w-]+))?$/);
-    if (fhir) {
+    if (fhir && method === 'GET') {
+      require(org, 'admin');
       const [, type, id] = fhir;
       if (!RESOURCE_TYPES.includes(type)) throw new HttpError(404, `Unsupported resource type ${type}`);
-      if (method === 'GET' && id) {
+      if (id) {
         const r = store.read(type, id);
         if (!r) throw new HttpError(404, `${type}/${id} not found`);
         return json(res, 200, r, FHIR_JSON);
       }
-      if (method === 'GET') return json(res, 200, search(store, type, url.searchParams), FHIR_JSON);
-      if (method === 'POST' && !id) {
-        if (!WRITABLE.includes(type)) throw new HttpError(405, `${type} resources are generated by the rules engine`);
-        const body = await readJson(req);
-        if (body.resourceType !== type) throw new HttpError(422, `resourceType must be ${type}`);
-        const saved = ingest(body);
-        res.setHeader('Location', `/fhir/${type}/${saved.id}/_history/${saved.meta.versionId}`);
-        return json(res, 201, saved, FHIR_JSON);
+      return json(res, 200, search(store, type, url.searchParams), FHIR_JSON);
+    }
+
+    if (method === 'GET' && path === '/api/facility/alerts') {
+      require(org, 'facility');
+      return json(res, 200, registry.facilityAlerts(org, { isAdmin }));
+    }
+    if (method === 'GET' && path === '/api/facility/worklist') {
+      require(org, 'facility');
+      const programme = url.searchParams.get('programme') || undefined;
+      if (programme && !programmes[programme]) throw new HttpError(422, `Unknown programme ${programme}`);
+      return json(res, 200, registry.facilityWorklist(org, { programme, status: url.searchParams.get('status') || undefined, isAdmin }));
+    }
+
+    if (method === 'GET' && path === '/api/export') {
+      require(org, 'consumer');
+      const programme = url.searchParams.get('programme');
+      if (!programmes[programme]) throw new HttpError(422, `programme must be one of ${Object.keys(programmes).join(', ')}`);
+      if (!agreementCovers(org, today, programme)) throw new HttpError(403, `No active agreement covering the ${programme} programme`);
+      const result = registry.anonymisedExtract(programme);
+      res.writeHead(200, {
+        ...SECURITY_HEADERS,
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${programme}-anonymised-${today}.ndjson"`,
+        'X-K-Anonymity': String(result.k),
+        'X-Generalisation': result.generalisation,
+        'X-Suppressed-Rows': String(result.suppressed),
+      });
+      return res.end(result.rows.map((r) => JSON.stringify(r)).join('\n') + (result.rows.length ? '\n' : ''));
+    }
+
+    if (path.startsWith('/api/admin/')) {
+      require(org, 'admin');
+      if (method === 'GET' && path === '/api/admin/organizations') return json(res, 200, registry.organizations());
+      if (method === 'POST' && path === '/api/admin/organizations') {
+        const b = await readJson(req);
+        try {
+          const { org: created, key } = createOrganization(store, {
+            name: String(b.name || '').trim(),
+            roles: Array.isArray(b.roles) ? b.roles : [],
+            agreement: b.agreement || {},
+          });
+          store.save();
+          // The key is shown once and never stored in clear.
+          return json(res, 201, { organization: describeOrg(created), apiKey: key });
+        } catch (err) {
+          throw new HttpError(422, err.message);
+        }
       }
-      throw new HttpError(405, `${method} not supported here`);
-    }
-
-    if (path === '/api/worklist' && method === 'GET') {
-      const status = url.searchParams.get('status');
-      const rows = registry.worklist().filter((r) => !status || r.status === status);
-      return json(res, 200, rows.sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || '')));
-    }
-    if (path === '/api/alerts' && method === 'GET') return json(res, 200, registry.activeAlerts());
-    if (path === '/api/rules/run' && method === 'POST') {
-      const result = registry.refreshAll();
-      store.save();
-      return json(res, 200, result);
-    }
-
-    if (path === '/api/register' && method === 'POST') {
-      const b = await readJson(req);
-      const patient = ingest(buildPatient({
-        given: str(b.given), family: str(b.family), birthDate: str(b.birthDate),
-        district: str(b.district) || 'Unknown', phone: str(b.phone), registryId: nextRegistryId(),
-      }));
-      return json(res, 201, { patient, evaluation: registry.evaluatePatient(patient.id) });
-    }
-    if (path === '/api/results' && method === 'POST') {
-      const b = await readJson(req);
-      const date = str(b.date) || isoDate(new Date());
-      if (!b.hpv && !b.cytology) throw new HttpError(422, 'Give an HPV and/or cytology result');
-      if (b.hpv && !hpvResults[b.hpv]) throw new HttpError(422, `hpv must be one of ${Object.keys(hpvResults)}`);
-      if (b.cytology && !cytologyResults[b.cytology]) throw new HttpError(422, `cytology must be one of ${Object.keys(cytologyResults)}`);
-      const saved = [];
-      if (b.hpv) saved.push(ingest(buildHpvObservation({ patientId: b.patientId, date, result: b.hpv })));
-      if (b.cytology) saved.push(ingest(buildCytologyObservation({ patientId: b.patientId, date, result: b.cytology })));
-      return json(res, 201, { observations: saved, evaluation: registry.evaluatePatient(b.patientId) });
-    }
-    if (path === '/api/follow-up' && method === 'POST') {
-      const b = await readJson(req);
-      const procedure = ingest(buildColposcopy({ patientId: b.patientId, date: str(b.date) || isoDate(new Date()) }));
-      return json(res, 201, { procedure, evaluation: registry.evaluatePatient(b.patientId) });
+      if (method === 'GET' && path === '/api/admin/imports') return json(res, 200, registry.importHistory());
+      if (method === 'GET' && path === '/api/admin/audit') return json(res, 200, registry.auditLog(Number(url.searchParams.get('limit')) || 200));
+      if (method === 'POST' && path === '/api/admin/rules/run') return json(res, 200, registry.refreshAll());
     }
 
     throw new HttpError(404, 'Not found');
   }
 
   return async (req, res) => {
+    const ctx = { org: null };
+    let status = 500;
     try {
-      await handle(req, res);
+      await handle(req, res, ctx);
+      status = res.statusCode;
     } catch (err) {
-      const status = err.status || 500;
+      status = err.status || 500;
       if (status === 500) console.error(err);
-      json(res, status, operationOutcome(status, status === 500 ? 'Internal error' : err.message), FHIR_JSON);
+      const message = status === 500 ? 'Internal error' : err.message;
+      json(res, status, operationOutcome(status, message, err.problems), FHIR_JSON);
+    } finally {
+      const path = new URL(req.url, 'http://localhost').pathname;
+      if (path.startsWith('/fhir/') && path !== '/fhir/metadata' || path === '/fhir' || (path.startsWith('/api/') && !path.startsWith('/api/public/'))) {
+        registry.audit({ orgId: ctx.org?.id, method: req.method, path, status });
+      }
     }
   };
 }
@@ -135,11 +158,14 @@ export function createApp(registry, { apiKey = null } = {}) {
 function search(store, type, params) {
   let results = store.all(type);
   const subject = params.get('patient') || params.get('subject');
-  if (subject) results = results.filter((r) => r.subject?.reference === (subject.includes('/') ? subject : `Patient/${subject}`));
+  if (subject) results = results.filter((r) => (r.subject || r.patient)?.reference === (subject.includes('/') ? subject : `Patient/${subject}`));
   const status = params.get('status');
   if (status) results = results.filter((r) => r.status === status);
   const identifier = params.get('identifier');
-  if (identifier) results = results.filter((r) => r.identifier?.some((i) => i.value === identifier.split('|').pop()));
+  if (identifier) {
+    const [sys, val] = identifier.includes('|') ? identifier.split('|') : [null, identifier];
+    results = results.filter((r) => r.identifier?.some((i) => i.value === val && (!sys || i.system === sys)));
+  }
   const count = Math.min(Number(params.get('_count')) || 50, 500);
   return {
     resourceType: 'Bundle',
@@ -155,29 +181,37 @@ function capabilityStatement() {
     status: 'draft',
     date: new Date().toISOString().slice(0, 10),
     kind: 'instance',
-    software: { name: 'Cervical Screening Registry (prototype)' },
+    software: { name: 'Open Cancer Screening Registry (MVP)' },
     fhirVersion: '4.0.1',
     format: ['application/fhir+json'],
     rest: [{
       mode: 'server',
+      security: { description: 'Bearer API key per organisation. Roles: submitter, facility, consumer, admin.' },
+      interaction: [{ code: 'transaction', documentation: 'De-identified submissions only. Patients may carry only pseudonym and source-record identifiers.' }],
       resource: RESOURCE_TYPES.map((type) => ({
         type,
-        interaction: [{ code: 'read' }, { code: 'search-type' }, ...(WRITABLE.includes(type) ? [{ code: 'create' }] : [])],
-        searchParam: [
-          { name: 'patient', type: 'reference' },
-          { name: 'status', type: 'token' },
-          ...(type === 'Patient' ? [{ name: 'identifier', type: 'token' }] : []),
-        ],
+        interaction: [{ code: 'read' }, { code: 'search-type' }],
+        searchParam: [{ name: 'patient', type: 'reference' }, { name: 'status', type: 'token' }, { name: 'identifier', type: 'token' }],
       })),
     }],
   };
 }
 
-function operationOutcome(status, diagnostics) {
+function operationOutcome(status, diagnostics, problems) {
+  const code = { 401: 'security', 403: 'forbidden', 404: 'not-found', 422: 'invalid' }[status] || 'exception';
   return {
     resourceType: 'OperationOutcome',
-    issue: [{ severity: 'error', code: status === 404 ? 'not-found' : status === 401 ? 'security' : status === 422 ? 'invalid' : 'exception', diagnostics }],
+    issue: problems?.length
+      ? problems.slice(0, 100).map((p) => ({ severity: 'error', code, diagnostics: p }))
+      : [{ severity: 'error', code, diagnostics }],
   };
+}
+
+async function serveModule(res, rel) {
+  if (!BROWSER_MODULES.test(rel)) throw new HttpError(404, 'Not found');
+  const body = await readFile(join(SRC_DIR, rel));
+  res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': MIME['.js'] });
+  res.end(body);
 }
 
 async function serveStatic(res, path) {
@@ -186,7 +220,7 @@ async function serveStatic(res, path) {
   const file = join(PUBLIC_DIR, extname(rel) ? rel : `${rel}.html`);
   try {
     const body = await readFile(file);
-    res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': MIME[extname(file)] || 'application/octet-stream' });
     res.end(body);
   } catch {
     throw new HttpError(404, 'Not found');
@@ -194,15 +228,15 @@ async function serveStatic(res, path) {
 }
 
 function json(res, status, body, type = 'application/json; charset=utf-8') {
-  res.writeHead(status, { 'Content-Type': type });
-  res.end(JSON.stringify(body, null, 2));
+  res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': type });
+  res.end(JSON.stringify(body));
 }
 
 async function readJson(req) {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > 1_000_000) throw new HttpError(413, 'Body too large');
+    if (raw.length > 50_000_000) throw new HttpError(413, 'Body too large');
   }
   try {
     return JSON.parse(raw || '{}');
@@ -210,5 +244,3 @@ async function readJson(req) {
     throw new HttpError(400, 'Body is not valid JSON');
   }
 }
-
-const str = (v) => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v));

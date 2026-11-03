@@ -1,15 +1,18 @@
 {
-  "name": "cervical-screening-registry",
-  "version": "0.1.0",
-  "description": "Prototype cervical screening registry on HL7 FHIR R4, with a rules engine, alerts and an anonymised public dashboard. Synthetic demo data only.",
+  "name": "cancer-screening-registry",
+  "version": "0.2.0",
+  "description": "Open-source national cancer screening registry on HL7 FHIR R4: de-identified at source, multi-programme rules and alerts, anonymised data out. Owned by RHEAP, developed by BYTEBUZ. Synthetic demo data only.",
   "license": "MIT",
+  "author": "BYTEBUZ for RHEAP",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22.13" },
   "scripts": {
     "start": "node src/server.js",
     "reset-demo": "node scripts/reset-demo.js",
+    "submit": "node scripts/submit.js",
+    "pull": "node scripts/pull.js",
     "build:pages": "node scripts/build-pages.js",
     "test": "node --test"
   },
-  "keywords": ["fhir", "hl7", "cervical-screening", "registry", "public-health", "prototype"]
+  "keywords": ["fhir", "hl7", "cancer-screening", "registry", "public-health", "pakistan", "privacy", "pseudonymisation"]
 }

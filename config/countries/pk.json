@@ -1,0 +1,63 @@
+{
+  "code": "PK",
+  "name": "Pakistan",
+  "note": "Programme parameters are illustrative defaults for the demo. Pakistan has no national organised screening programme for these cancers yet; real values must come from the federal and provincial health authorities.",
+  "nationalId": {
+    "name": "CNIC",
+    "description": "Computerised National Identity Card number issued by NADRA",
+    "digits": 13,
+    "pattern": "^\\d{5}-?\\d{7}-?\\d$"
+  },
+  "suppressionThreshold": 5,
+  "kAnonymity": 5,
+  "regions": {
+    "Punjab": ["Lahore", "Faisalabad", "Rawalpindi", "Multan", "Gujranwala", "Bahawalpur"],
+    "Sindh": ["Karachi Central", "Karachi East", "Hyderabad", "Sukkur", "Larkana"],
+    "Khyber Pakhtunkhwa": ["Peshawar", "Mardan", "Swat", "Abbottabad"],
+    "Balochistan": ["Quetta", "Kech", "Khuzdar"],
+    "Islamabad Capital Territory": ["Islamabad"],
+    "Gilgit-Baltistan": ["Gilgit"],
+    "Azad Jammu and Kashmir": ["Muzaffarabad"]
+  },
+  "programmes": {
+    "cervical": {
+      "eligibleAge": { "min": 25, "max": 64 },
+      "intervals": [
+        { "minAge": 25, "maxAge": 49, "months": 36 },
+        { "minAge": 50, "maxAge": 64, "months": 60 }
+      ],
+      "earlyRecallMonths": 12,
+      "inadequateRepeatMonths": 3,
+      "postFollowUpRecallMonths": 12,
+      "abnormalFollowUpDays": 42,
+      "dueSoonDays": 90
+    },
+    "breast": {
+      "eligibleAge": { "min": 40, "max": 69 },
+      "intervals": [{ "minAge": 40, "maxAge": 69, "months": 24 }],
+      "earlyRecallMonths": 6,
+      "inadequateRepeatMonths": 1,
+      "postFollowUpRecallMonths": 12,
+      "abnormalFollowUpDays": 28,
+      "dueSoonDays": 60
+    },
+    "colorectal": {
+      "eligibleAge": { "min": 50, "max": 75 },
+      "intervals": [{ "minAge": 50, "maxAge": 75, "months": 24 }],
+      "earlyRecallMonths": 12,
+      "inadequateRepeatMonths": 1,
+      "postFollowUpRecallMonths": 36,
+      "abnormalFollowUpDays": 42,
+      "dueSoonDays": 60
+    },
+    "oral": {
+      "eligibleAge": { "min": 30, "max": 74 },
+      "intervals": [{ "minAge": 30, "maxAge": 74, "months": 36 }],
+      "earlyRecallMonths": 12,
+      "inadequateRepeatMonths": 1,
+      "postFollowUpRecallMonths": 12,
+      "abnormalFollowUpDays": 21,
+      "dueSoonDays": 60
+    }
+  }
+}

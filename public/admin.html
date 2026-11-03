@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registry Administration</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header>
+    <div class="wrap bar">
+      <div>
+        <h1>Registry administration</h1>
+        <div class="muted">Organisations, agreements, imports and the audit log</div>
+      </div>
+      <nav class="site-nav"><a href="./">Public dashboard</a><a href="portal">Facility portal</a></nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="banner"><strong>Synthetic demo data.</strong> Demo admin key: <code>demo-admin-key</code>. A research consumer key for exports: <code>demo-research-key</code>.</div>
+
+    <section class="card" id="signin">
+      <form id="signin-form" class="row">
+        <label>Admin API key <input id="api-key" type="password" autocomplete="off" required></label>
+        <button>Sign in</button>
+      </form>
+      <div class="msg" id="signin-msg" role="status"></div>
+    </section>
+
+    <div id="app" class="hidden">
+      <section class="card">
+        <div class="bar"><h2>Organisations and data-sharing agreements</h2><button type="button" class="secondary" id="run-rules">Re-run rules now</button></div>
+        <div class="msg" id="rules-msg" role="status"></div>
+        <div class="table-scroll"><table id="orgs"></table></div>
+      </section>
+
+      <section class="card">
+        <h2>Add an organisation</h2>
+        <p class="muted">Only add an organisation after its data-sharing agreement (sources) or data access request (consumers) is signed.</p>
+        <form id="org-form">
+          <div class="row">
+            <label>Name <input name="name" required></label>
+            <label>Agreement reference <input name="reference" required placeholder="DSA-2026-005"></label>
+            <label>Valid from <input name="validFrom" type="date" required></label>
+            <label>Valid to <input name="validTo" type="date" required></label>
+          </div>
+          <label>Purpose <input name="purpose" placeholder="e.g. Contribute screening data; coverage research"></label>
+          <div class="row">
+            <fieldset><legend class="muted">Roles</legend>
+              <label class="check"><input type="checkbox" name="roles" value="submitter"> submitter</label>
+              <label class="check"><input type="checkbox" name="roles" value="facility"> facility</label>
+              <label class="check"><input type="checkbox" name="roles" value="consumer"> consumer</label>
+              <label class="check"><input type="checkbox" name="roles" value="admin"> admin</label>
+            </fieldset>
+            <fieldset><legend class="muted">Programmes covered</legend><div id="programme-checks"></div></fieldset>
+          </div>
+          <button>Create organisation and API key</button>
+        </form>
+        <div class="msg" id="org-msg" role="status"></div>
+      </section>
+
+      <section class="card">
+        <h2>Import history (provenance)</h2>
+        <div class="table-scroll"><table id="imports"></table></div>
+      </section>
+
+      <section class="card">
+        <h2>Audit log <span class="muted">(latest 200)</span></h2>
+        <div class="table-scroll"><table id="audit"></table></div>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="admin.js"></script>
+</body>
+</html>

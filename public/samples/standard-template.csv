@@ -1,0 +1,12 @@
+record_id,cnic,given_name,family_name,sex,date_of_birth,district,province,phone,programme,event,event_date,test,result,icdo3_topography,icdo3_morphology
+HSP-1001,99101-1000001-2,Ayesha,Sampleton,female,1984-03-12,Lahore,Punjab,+92 300 0000001,cervical,screen,2026-09-14,hpv,positive,,
+HSP-1001,99101-1000001-2,Ayesha,Sampleton,female,1984-03-12,Lahore,Punjab,+92 300 0000001,cervical,screen,2026-09-14,cytology,HSIL,,
+HSP-1002,99101-1000002-4,Fatima,Placeholder,female,1972-11-02,Lahore,Punjab,+92 300 0000002,breast,screen,2026-08-03,mammography,2,,
+HSP-1002,99101-1000002-4,Fatima,Placeholder,female,1972-11-02,Lahore,Punjab,+92 300 0000002,cervical,screen,2026-08-03,via,negative,,
+HSP-1003,99101-1000003-6,Usman,Testcase,male,1968-06-21,Faisalabad,Punjab,+92 300 0000003,colorectal,screen,2026-10-01,fit,positive,,
+HSP-1003,99101-1000003-6,Usman,Testcase,male,1968-06-21,Faisalabad,Punjab,+92 300 0000003,colorectal,follow-up,2026-10-20,,,,
+HSP-1004,99101-1000004-8,Bilal,Fixture,male,1979-01-30,Multan,Punjab,,oral,screen,2026-07-11,ove,suspicious,,
+HSP-1005,,Zainab,Dummy,female,1990-05-05,Rawalpindi,Punjab,,cervical,screen,2025-02-17,hpv,negative,,
+HSP-1006,99101-1000006-1,Maryam,Example,female,1961-09-09,Lahore,Punjab,,breast,screen,2026-06-30,mammography,4,,
+HSP-1007,99101-1000007-3,Hira,Mockdata,female,1988-12-12,Lahore,Punjab,,,opt-out,2026-10-05,,,,
+HSP-1008,12345,Sana,Synthetic,female,1993-02-02,Atlantis,Punjab,,cervical,screen,2026-09-01,pap,maybe,,

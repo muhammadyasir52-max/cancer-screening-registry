@@ -1,31 +1,40 @@
 import { createServer } from 'node:http';
-import { fileURLToPath } from 'node:url';
-import { Store } from './store.js';
+import { openStore } from './store.js';
+import { loadCountry } from './country.js';
 import { Registry } from './registry.js';
 import { createApp } from './app.js';
-import { seedStore } from './synthetic.js';
+import { ensureAdmin } from './auth.js';
+import { seedDemo, DEMO_ORGS } from './demo.js';
 
 const port = Number(process.env.PORT) || 3000;
-const dataFile = process.env.DATA_FILE || fileURLToPath(new URL('../data/store.json', import.meta.url));
-const apiKey = process.env.REGISTRY_API_KEY || null;
+const store = await openStore();
+const country = loadCountry();
+const registry = new Registry(store, { country });
 
-const store = new Store(dataFile);
-const registry = new Registry(store);
-
-if (store.all('Patient').length === 0) {
-  console.log('Empty store: generating synthetic demo population…');
-  seedStore(store);
+if (store.all('Organization').length === 0 && process.env.DEMO !== '0') {
+  console.log('Empty registry: loading synthetic demo organisations and population…');
+  const { totals } = await seedDemo(registry);
+  console.log('Demo submissions:', JSON.stringify(totals));
+}
+ensureAdmin(store, process.env.ADMIN_API_KEY);
+const demoOrgs = store.all('Organization').filter((o) => o.name.endsWith('(demo)') || o.name.startsWith('Demo '));
+if (process.env.NODE_ENV === 'production' && demoOrgs.length) {
+  console.error('Refusing to start: demo organisations with well-known keys exist and NODE_ENV=production. Start on a fresh database with DEMO=0.');
+  process.exit(1);
 }
 const run = registry.refreshAll();
-store.save();
-console.log(`Rules evaluated for ${run.patients} patients (${run.opened} alerts opened, ${run.closed} closed).`);
+console.log(`${country.name}: rules evaluated for ${run.patients} people (${run.opened} alerts opened, ${run.closed} closed).`);
 
-// Re-run the rules once a day so people become overdue without a restart.
-setInterval(() => { registry.refreshAll(); store.save(); }, 24 * 60 * 60 * 1000).unref();
+// Re-run the rules daily so people become overdue without a restart.
+setInterval(() => registry.refreshAll(), 24 * 60 * 60 * 1000).unref();
 
-createServer(createApp(registry, { apiKey })).listen(port, () => {
+createServer(createApp(registry)).listen(port, () => {
   console.log(`Public dashboard: http://localhost:${port}/`);
-  console.log(`Staff screens:    http://localhost:${port}/staff`);
+  console.log(`Facility portal:  http://localhost:${port}/portal`);
+  console.log(`Administration:   http://localhost:${port}/admin`);
   console.log(`FHIR API:         http://localhost:${port}/fhir/metadata`);
-  if (!apiKey) console.warn('REGISTRY_API_KEY is not set: staff and FHIR endpoints are open. Fine for the demo, never for real data.');
+  if (store.all('Organization').some((o) => o.name.endsWith('(demo)'))) {
+    console.warn('DEMO MODE: synthetic data and well-known demo keys:');
+    for (const o of Object.values(DEMO_ORGS)) console.warn(`  ${o.key.padEnd(20)} ${o.name} [${o.roles.join(', ')}]`);
+  }
 });

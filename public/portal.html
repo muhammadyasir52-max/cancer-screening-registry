@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registry Facility Portal</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header>
+    <div class="wrap bar">
+      <div>
+        <h1>Facility portal</h1>
+        <div class="muted" id="who">Not signed in</div>
+      </div>
+      <nav class="site-nav"><a href="./">Public dashboard</a><a href="admin">Administration</a></nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="banner"><strong>Synthetic demo data.</strong> No real patients. Demo keys: <code>demo-lahore-key</code>, <code>demo-karachi-key</code>, <code>demo-kp-key</code>, <code>demo-registry-key</code>.</div>
+
+    <section class="card" id="signin">
+      <h2>Sign in with your organisation's API key</h2>
+      <form id="signin-form" class="row">
+        <label>API key <input id="api-key" type="password" autocomplete="off" required></label>
+        <button>Sign in</button>
+      </form>
+      <div class="msg" id="signin-msg" role="status"></div>
+    </section>
+
+    <div id="app" class="hidden">
+      <div class="tabs" id="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="alerts" aria-selected="true">Alerts</button>
+        <button type="button" role="tab" data-tab="worklist" aria-selected="false">Worklist</button>
+        <button type="button" role="tab" data-tab="submit" aria-selected="false">Submit data</button>
+        <button type="button" class="secondary" id="signout" style="margin-left:auto">Sign out</button>
+      </div>
+
+      <section class="card" data-panel="alerts">
+        <h2>Active alerts for people your facility submitted <span class="muted" id="alert-count"></span></h2>
+        <p class="muted">The registry knows people only by pseudonym. Use your own record number to find the person in your system.</p>
+        <div class="table-scroll"><table id="alerts"></table></div>
+      </section>
+
+      <section class="card hidden" data-panel="worklist">
+        <div class="row" style="margin-bottom:12px">
+          <label>Programme <select id="wl-programme"></select></label>
+          <label>Status
+            <select id="wl-status">
+              <option value="">All eligible</option><option value="abnormal">Abnormal</option><option value="overdue">Overdue</option>
+              <option value="due-soon">Due soon</option><option value="up-to-date">Up to date</option><option value="diagnosed">Diagnosed</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-scroll"><table id="worklist"></table></div>
+        <p class="muted" id="wl-note"></p>
+      </section>
+
+      <section class="card hidden" data-panel="submit">
+        <h2>Submit data</h2>
+        <p>Your file is read and de-identified <strong>in this browser</strong>. Names, phone numbers and ID numbers never leave this computer: only a keyed pseudonym, birth month, sex, district and the screening events are sent.</p>
+        <form id="submit-form">
+          <div class="row">
+            <label>File layout <select id="mapping"></select></label>
+            <label>Export file (CSV or tab separated) <input id="file" type="file" accept=".csv,.tsv,.txt" required></label>
+            <label>Pseudonymisation key <input id="secret" type="password" autocomplete="off" required placeholder="from the RHEAP key custodian"></label>
+          </div>
+          <p class="muted">Sample files: <a href="samples/standard-template.csv" download>standard template</a> ·
+            <a href="samples/example-hospital.csv" download>example hospital export</a> ·
+            <a href="samples/canreg5-export.tsv" download>CanReg5 registry export</a>. Demo key: <code>demo-pseudonymisation-key-not-for-real-data</code></p>
+          <div class="row"><button>Preview de-identified data</button><button type="button" id="send" disabled>Send to registry</button></div>
+        </form>
+        <div class="msg" id="submit-msg" role="status"></div>
+        <div id="preview"></div>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="portal.js"></script>
+</body>
+</html>

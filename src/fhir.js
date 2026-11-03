@@ -1,128 +1,129 @@
-// FHIR R4 code systems, resource builders and minimal validation.
-// Only the subset of FHIR this registry needs is implemented.
+// FHIR R4 code systems, resource builders and checks.
+// This module runs in Node and in the browser (no node: imports), because the
+// facility portal de-identifies and builds FHIR resources client-side.
 
-const BASE = 'https://example.org/cervical-registry/fhir';
+const BASE = 'https://example.org/cancer-registry/fhir';
 
 export const systems = {
   loinc: 'http://loinc.org',
   snomed: 'http://snomed.info/sct',
-  registryId: `${BASE}/sid/registry-id`,
-  district: `${BASE}/StructureDefinition/district`,
-  bethesda: `${BASE}/CodeSystem/bethesda-category`,
+  icdo3: 'http://terminology.hl7.org/CodeSystem/icd-o-3',
+  pseudonym: `${BASE}/sid/pseudonym`,
+  pseudonymWeak: `${BASE}/sid/pseudonym-weak`,
+  sourceRecord: `${BASE}/sid/source-record`,
+  programme: `${BASE}/CodeSystem/screening-programme`,
+  localTest: `${BASE}/CodeSystem/screening-test`,
+  localResult: `${BASE}/CodeSystem/screening-result`,
+  followUp: `${BASE}/CodeSystem/follow-up`,
   alert: `${BASE}/CodeSystem/screening-alert`,
+  orgRole: `${BASE}/CodeSystem/organization-role`,
+  agreement: `${BASE}/StructureDefinition/data-sharing-agreement`,
   obsCategory: 'http://terminology.hl7.org/CodeSystem/observation-category',
-  interpretation: 'http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation',
   flagCategory: 'http://terminology.hl7.org/CodeSystem/flag-category',
   flagPriority: 'http://hl7.org/fhir/flag-priority-code',
   actReason: 'http://terminology.hl7.org/CodeSystem/v3-ActReason',
+  consentScope: 'http://terminology.hl7.org/CodeSystem/consentscope',
+  consentCategory: 'http://loinc.org',
+  auditType: 'http://terminology.hl7.org/CodeSystem/audit-event-type',
+  provenanceActivity: 'http://terminology.hl7.org/CodeSystem/v3-DataOperation',
 };
 
-export const tests = {
-  hpv: {
-    system: systems.loinc,
-    code: '21440-3',
-    display: 'Human papilloma virus 16+18+31+33+35+45+51+52+56 DNA [Presence] in Cervix by Probe',
-  },
-  cytology: {
-    system: systems.loinc,
-    code: '10524-7',
-    display: 'Microscopic observation [Identifier] in Cervix by Cyto stain',
-  },
-};
-
-export const hpvResults = {
+// Generic result codes shared by several tests.
+export const results = {
   positive: { system: systems.snomed, code: '10828004', display: 'Positive' },
   negative: { system: systems.snomed, code: '260385009', display: 'Negative' },
   invalid: { system: systems.snomed, code: '125154007', display: 'Specimen unsatisfactory for evaluation' },
 };
 
-// Bethesda system categories for cervical cytology.
-export const cytologyResults = {
-  NILM: 'Negative for intraepithelial lesion or malignancy',
-  'ASC-US': 'Atypical squamous cells of undetermined significance',
-  LSIL: 'Low-grade squamous intraepithelial lesion',
-  'ASC-H': 'Atypical squamous cells, cannot exclude HSIL',
-  HSIL: 'High-grade squamous intraepithelial lesion',
-  AGC: 'Atypical glandular cells',
-  SCC: 'Squamous cell carcinoma',
-  UNSAT: 'Unsatisfactory for evaluation',
-};
-
-export const colposcopy = { system: systems.snomed, code: '392003006', display: 'Colposcopy' };
-
 export const alertCodes = {
   'never-screened': { display: 'Eligible and never screened', priority: 'PM' },
   overdue: { display: 'Screening overdue', priority: 'PM' },
-  'abnormal-result': { display: 'Abnormal result: refer for colposcopy', priority: 'PH' },
+  'abnormal-result': { display: 'Abnormal result: refer for diagnostic follow-up', priority: 'PH' },
   'follow-up-overdue': { display: 'Abnormal result with no follow-up recorded', priority: 'PH' },
 };
 
-// Every resource carries the HL7 "test health data" security label so that
-// demo records can never be mistaken for real ones.
-export const testDataMeta = () => ({
-  security: [{ system: systems.actReason, code: 'HTEST', display: 'test health data' }],
-});
+// Every resource carries the HL7 "test health data" label while the registry
+// runs on synthetic data, so demo records can never be mistaken for real ones.
+export const testDataMeta = (synthetic = true) =>
+  (synthetic ? { security: [{ system: systems.actReason, code: 'HTEST', display: 'test health data' }] } : {});
 
-export function buildPatient({ given, family, birthDate, district, registryId, phone }) {
-  const patient = {
+const orgRef = (orgId) => (orgId ? { reference: `Organization/${orgId}` } : undefined);
+
+// --- Builders --------------------------------------------------------------
+
+// A de-identified person. No name, phone, street address or full date of birth.
+export function buildPatient({ pseudonym, weak = false, birthMonth, sex, district, province, country, orgId, localId, synthetic = true }) {
+  const identifier = [{ system: weak ? systems.pseudonymWeak : systems.pseudonym, value: pseudonym }];
+  if (localId) identifier.push({ system: systems.sourceRecord, value: localId, assigner: orgRef(orgId) });
+  return {
     resourceType: 'Patient',
-    meta: testDataMeta(),
-    identifier: [{ system: systems.registryId, value: registryId }],
-    active: true,
-    name: [{ use: 'official', family, given: [given] }],
-    gender: 'female',
-    birthDate,
-    address: [{ use: 'home', district }],
+    meta: testDataMeta(synthetic),
+    identifier,
+    gender: sex,
+    birthDate: birthMonth,
+    address: [{ district, state: province, country }],
+    managingOrganization: orgRef(orgId),
   };
-  if (phone) patient.telecom = [{ system: 'phone', value: phone }];
-  return patient;
 }
 
-export function buildHpvObservation({ patientId, date, result }) {
-  const value = hpvResults[result];
-  if (!value) throw new Error(`Unknown HPV result: ${result}`);
+export function buildObservation({ subject, date, test, value, orgId, synthetic = true }) {
   return {
     resourceType: 'Observation',
-    meta: testDataMeta(),
+    meta: testDataMeta(synthetic),
     status: 'final',
     category: [{ coding: [{ system: systems.obsCategory, code: 'laboratory' }] }],
-    code: { coding: [tests.hpv], text: 'HPV test' },
-    subject: { reference: `Patient/${patientId}` },
+    code: { coding: [test.coding], text: test.label },
+    subject,
     effectiveDateTime: date,
+    performer: orgId ? [orgRef(orgId)] : undefined,
     valueCodeableConcept: { coding: [value], text: value.display },
-    interpretation: [interpretation(result === 'positive' ? 'POS' : result === 'negative' ? 'NEG' : 'IND')],
   };
 }
 
-export function buildCytologyObservation({ patientId, date, result }) {
-  const display = cytologyResults[result];
-  if (!display) throw new Error(`Unknown cytology result: ${result}`);
-  const code = result === 'NILM' ? 'N' : result === 'UNSAT' ? 'IND' : 'A';
-  return {
-    resourceType: 'Observation',
-    meta: testDataMeta(),
-    status: 'final',
-    category: [{ coding: [{ system: systems.obsCategory, code: 'laboratory' }] }],
-    code: { coding: [tests.cytology], text: 'Cervical cytology' },
-    subject: { reference: `Patient/${patientId}` },
-    effectiveDateTime: date,
-    valueCodeableConcept: { coding: [{ system: systems.bethesda, code: result, display }], text: display },
-    interpretation: [interpretation(code)],
-  };
-}
-
-export function buildColposcopy({ patientId, date }) {
+export function buildProcedure({ subject, date, coding, label, orgId, synthetic = true }) {
   return {
     resourceType: 'Procedure',
-    meta: testDataMeta(),
+    meta: testDataMeta(synthetic),
     status: 'completed',
-    code: { coding: [colposcopy], text: 'Colposcopy' },
-    subject: { reference: `Patient/${patientId}` },
+    code: { coding: [coding], text: label },
+    subject,
     performedDateTime: date,
+    performer: orgId ? [{ actor: orgRef(orgId) }] : undefined,
   };
 }
 
-export function buildFlag({ patientId, code, start, detail }) {
+// A cancer diagnosis, typically imported from an existing cancer registry.
+export function buildCondition({ subject, date, topography, morphology, orgId, synthetic = true }) {
+  return {
+    resourceType: 'Condition',
+    meta: testDataMeta(synthetic),
+    clinicalStatus: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: 'active' }] },
+    verificationStatus: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-ver-status', code: 'confirmed' }] },
+    code: { coding: [{ system: systems.icdo3, code: morphology || '8000/3' }], text: `ICD-O-3 ${morphology || '8000/3'}` },
+    bodySite: [{ coding: [{ system: systems.icdo3, code: topography }], text: `ICD-O-3 topography ${topography}` }],
+    subject,
+    onsetDateTime: date,
+    recorder: orgRef(orgId),
+  };
+}
+
+// The person has opted out of the registry's use of her or his data.
+export function buildOptOut({ subject, date, orgId, synthetic = true }) {
+  return {
+    resourceType: 'Consent',
+    meta: testDataMeta(synthetic),
+    status: 'active',
+    scope: { coding: [{ system: systems.consentScope, code: 'patient-privacy' }] },
+    category: [{ coding: [{ system: systems.consentCategory, code: '59284-0', display: 'Patient Consent' }] }],
+    patient: subject,
+    dateTime: date,
+    organization: orgId ? [orgRef(orgId)] : undefined,
+    policyRule: { text: 'Opt-out of cancer screening registry processing' },
+    provision: { type: 'deny' },
+  };
+}
+
+export function buildFlag({ patientId, programme, code, start, detail, orgId }) {
   const def = alertCodes[code];
   return {
     resourceType: 'Flag',
@@ -133,64 +134,108 @@ export function buildFlag({ patientId, code, start, detail }) {
     }],
     status: 'active',
     category: [{ coding: [{ system: systems.flagCategory, code: 'clinical', display: 'Clinical' }] }],
-    code: { coding: [{ system: systems.alert, code, display: def.display }], text: detail || def.display },
+    code: {
+      coding: [{ system: systems.alert, code, display: def.display }, { system: systems.programme, code: programme }],
+      text: detail || def.display,
+    },
     subject: { reference: `Patient/${patientId}` },
     period: { start },
+    author: orgRef(orgId),
   };
 }
 
-function interpretation(code) {
-  return { coding: [{ system: systems.interpretation, code }] };
+export function buildOrganization({ name, roles, agreement, keyHash }) {
+  return {
+    resourceType: 'Organization',
+    active: true,
+    name,
+    type: roles.map((r) => ({ coding: [{ system: systems.orgRole, code: r }] })),
+    extension: [{
+      url: systems.agreement,
+      extension: [
+        { url: 'reference', valueString: agreement.reference },
+        { url: 'validFrom', valueDate: agreement.validFrom },
+        { url: 'validTo', valueDate: agreement.validTo },
+        { url: 'purpose', valueString: agreement.purpose || '' },
+        ...agreement.programmes.map((p) => ({ url: 'programme', valueCode: p })),
+      ],
+    }],
+    // SHA-256 of the organisation's API key. The key itself is never stored.
+    identifier: [{ system: `${BASE}/sid/api-key-sha256`, value: keyHash }],
+  };
+}
+
+export function buildProvenance({ targets, orgId, agreementRef, recorded, source, counts }) {
+  return {
+    resourceType: 'Provenance',
+    target: targets.map((reference) => ({ reference })),
+    recorded,
+    policy: agreementRef ? [`urn:agreement:${agreementRef}`] : undefined,
+    activity: { coding: [{ system: systems.provenanceActivity, code: 'CREATE' }] },
+    agent: [{ who: orgRef(orgId) }],
+    entity: [{ role: 'source', what: { display: source || 'submission' } }],
+    extension: [{ url: `${BASE}/StructureDefinition/import-counts`, valueString: JSON.stringify(counts) }],
+  };
+}
+
+export function buildAuditEvent({ orgId, action, path, outcome, recorded, entity }) {
+  return {
+    resourceType: 'AuditEvent',
+    type: { system: systems.auditType, code: 'rest', display: 'RESTful Operation' },
+    action, // C, R, U, D or E (execute)
+    recorded,
+    outcome: outcome === 200 || outcome === 201 ? '0' : outcome >= 500 ? '8' : '4',
+    outcomeDesc: String(outcome),
+    agent: [{ who: orgId ? orgRef(orgId) : { display: 'anonymous' }, requestor: true }],
+    source: { observer: { display: 'cancer-screening-registry' } },
+    entity: [{ what: { display: path }, ...(entity ? { description: entity } : {}) }],
+  };
 }
 
 // --- Reading helpers -------------------------------------------------------
 
-export const patientIdOf = (resource) => resource.subject?.reference?.replace(/^Patient\//, '');
+export const patientIdOf = (resource) =>
+  (resource.subject || resource.patient)?.reference?.replace(/^Patient\//, '');
 
 export const hasCoding = (concept, { system, code }) =>
   (concept?.coding || []).some((c) => c.system === system && c.code === code);
 
-export const codeIn = (concept, system) =>
-  (concept?.coding || []).find((c) => c.system === system)?.code;
+export const codeIn = (concept, system) => (concept?.coding || []).find((c) => c.system === system)?.code;
 
 export const flagCode = (flag) => codeIn(flag.code, systems.alert);
+export const flagProgramme = (flag) => codeIn(flag.code, systems.programme);
 
 export const districtOf = (patient) => patient.address?.[0]?.district || 'Unknown';
+export const provinceOf = (patient) => patient.address?.[0]?.state || 'Unknown';
 
-export const displayName = (patient) => {
-  const n = patient.name?.[0];
-  return n ? `${(n.given || []).join(' ')} ${n.family || ''}`.trim() : '(no name)';
-};
+export const pseudonymOf = (patient) =>
+  patient.identifier?.find((i) => i.system === systems.pseudonym || i.system === systems.pseudonymWeak)?.value;
 
-// --- Validation ------------------------------------------------------------
+export const sourceRecordsOf = (patient) =>
+  (patient.identifier || []).filter((i) => i.system === systems.sourceRecord)
+    .map((i) => ({ localId: i.value, orgId: i.assigner?.reference?.replace(/^Organization\//, '') }));
 
-const DATE = /^\d{4}-\d{2}-\d{2}/;
+// --- De-identification guard -------------------------------------------------
 
-// Returns a list of human-readable problems; an empty list means valid.
-export function validate(resource) {
+const ALLOWED_PATIENT_IDENTIFIERS = [systems.pseudonym, systems.pseudonymWeak, systems.sourceRecord];
+
+// The central registry refuses any Patient that carries direct identifiers.
+// Returns a list of problems; empty means the resource is acceptable.
+export function directIdentifierProblems(patient) {
   const problems = [];
-  if (!resource || typeof resource !== 'object') return ['Body must be a JSON object'];
-  switch (resource.resourceType) {
-    case 'Patient':
-      if (resource.gender !== 'female') problems.push('Patient.gender must be "female" for this registry');
-      if (!DATE.test(resource.birthDate || '')) problems.push('Patient.birthDate is required (YYYY-MM-DD)');
-      if (!resource.name?.[0]?.family) problems.push('Patient.name[0].family is required');
-      break;
-    case 'Observation': {
-      const known = hasCoding(resource.code, tests.hpv) || hasCoding(resource.code, tests.cytology);
-      if (!known) problems.push(`Observation.code must be LOINC ${tests.hpv.code} (HPV) or ${tests.cytology.code} (cytology)`);
-      if (!patientIdOf(resource)) problems.push('Observation.subject must reference a Patient');
-      if (!DATE.test(resource.effectiveDateTime || '')) problems.push('Observation.effectiveDateTime is required');
-      if (!resource.valueCodeableConcept?.coding?.length) problems.push('Observation.valueCodeableConcept is required');
-      break;
-    }
-    case 'Procedure':
-      if (!hasCoding(resource.code, colposcopy)) problems.push(`Procedure.code must be SNOMED ${colposcopy.code} (colposcopy)`);
-      if (!patientIdOf(resource)) problems.push('Procedure.subject must reference a Patient');
-      if (!DATE.test(resource.performedDateTime || '')) problems.push('Procedure.performedDateTime is required');
-      break;
-    default:
-      problems.push(`Unsupported resourceType: ${resource.resourceType}`);
+  if (patient.name?.length) problems.push('Patient.name is not accepted (de-identify at source)');
+  if (patient.telecom?.length) problems.push('Patient.telecom is not accepted');
+  if (patient.photo?.length) problems.push('Patient.photo is not accepted');
+  if (patient.contact?.length) problems.push('Patient.contact is not accepted');
+  if ((patient.address || []).some((a) => a.line?.length || a.postalCode || a.text || a.city)) {
+    problems.push('Patient.address may only contain district, state (province) and country');
   }
+  if (patient.birthDate && !/^\d{4}(-\d{2})?$/.test(patient.birthDate)) {
+    problems.push('Patient.birthDate must be generalised to YYYY-MM');
+  }
+  for (const id of patient.identifier || []) {
+    if (!ALLOWED_PATIENT_IDENTIFIERS.includes(id.system)) problems.push(`Identifier system ${id.system} is not accepted`);
+  }
+  if (!pseudonymOf(patient)) problems.push('Patient needs a pseudonym identifier');
   return problems;
 }

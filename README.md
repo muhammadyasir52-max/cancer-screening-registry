@@ -1,138 +1,150 @@
-# Cervical Screening Registry (prototype)
+# Open Cancer Screening Registry
 
-A small, working prototype of a population cervical screening registry built on
-**HL7 FHIR R4**:
+An open-source national registry for cancer screening, built on **HL7 FHIR R4**.
+It starts in **Pakistan** and is designed to be reused by other countries.
 
-1. **Register** women (FHIR `Patient`).
-2. **Record** HPV and cytology results (FHIR `Observation`, LOINC-coded) and
-   colposcopy follow-up (FHIR `Procedure`, SNOMED CT-coded).
-3. A **rules engine** works out who is up to date, due soon, overdue, never
-   screened, or has an abnormal result that needs follow-up.
-4. **Alerts** are raised and closed automatically as FHIR `Flag` resources.
-5. A **public dashboard** shows anonymised totals only, with small-number
-   suppression.
+- **Owner:** RHEAP, a neutral organisation that stewards the registry and its data
+- **Developer:** BYTEBUZ
+- **Licence:** [MIT](LICENSE)
 
-> ⚠️ **Demo only. No real patients.** Every record is synthetic, generated from
-> a fixed random seed, and labelled with the HL7 `HTEST` ("test health data")
-> security tag. The screening intervals are illustrative and are **not clinical
-> guidance**. This is not a medical device and must not be used for patient care.
+> ⚠️ **MVP running on synthetic data only. No real patients.** Every demo
+> record is generated and labelled with the HL7 `HTEST` ("test health data")
+> security tag. Screening ages and intervals are illustrative, not clinical
+> guidance. See [GOVERNANCE.md](GOVERNANCE.md) for what must happen before any
+> real data is processed.
 
-No dependencies: plain Node.js (20+), no database, no build step.
+## What it does
+
+| | |
+| --- | --- |
+| **Four programmes** | Cervical (HPV, cytology, VIA), breast (mammography BI-RADS, clinical exam), colorectal (FIT), oral (visual exam) |
+| **Data in** | Hospitals, screening units and existing cancer registries submit through a CSV upload in the browser, a command-line submission kit, or a FHIR connector that pulls from their own FHIR server. CanReg5 exports are supported. |
+| **De-identified at source** | Names, phone numbers and CNICs are removed on the provider's machine. The registry receives a keyed pseudonym (HMAC-SHA256), birth month, sex and district, and rejects anything identifiable. |
+| **Record linkage** | The same person seen by two hospitals, and later diagnosed by a cancer registry, links up by pseudonym. |
+| **Rules and alerts** | Per programme: up to date, due soon, overdue, never screened, abnormal awaiting follow-up, diagnosed, opted out. Alerts (FHIR `Flag`) go back to the facility, which sees only its own record numbers. |
+| **Data out** | A public dashboard with suppressed totals; k-anonymous record-level extracts for approved consumers (NDJSON). |
+| **Governance** | Organisations, roles and data-sharing agreements; FHIR `Provenance` per import; FHIR `AuditEvent` for every request; opt-out via FHIR `Consent`. |
+| **Complements existing registries** | Existing registries keep running and contribute diagnoses; nothing is taken over. |
 
 ## Quick start
+
+Needs Node.js 22.13 or later. No other dependencies.
 
 ```bash
 npm start
 ```
 
-Then open:
+The first start loads synthetic demo organisations and about 1,700 synthetic people into `data/registry.db` (SQLite).
 
 | URL | What |
 | --- | --- |
-| http://localhost:3000/ | Public dashboard (anonymised totals) |
-| http://localhost:3000/staff | Staff screens: register, record results, alerts, worklist |
+| http://localhost:3000/ | Public dashboard |
+| http://localhost:3000/portal | Facility portal: alerts, worklist, de-identified upload |
+| http://localhost:3000/admin | Organisations, agreements, import history, audit log |
 | http://localhost:3000/fhir/metadata | FHIR CapabilityStatement |
 
-On first start the server generates 600 synthetic women into `data/store.json`.
-`npm run reset-demo` wipes and regenerates them. `npm test` runs the test suite.
+**Demo keys** (synthetic data only; never use outside a demo):
+
+| Key | Organisation | Roles |
+| --- | --- | --- |
+| `demo-admin-key` | RHEAP registry administration | admin |
+| `demo-lahore-key` | Demo Teaching Hospital, Lahore | submitter, facility |
+| `demo-karachi-key` | Demo General Hospital, Karachi | submitter, facility |
+| `demo-kp-key` | Demo Mobile Screening Unit, KP (no colorectal) | submitter, facility |
+| `demo-registry-key` | Demo Population Cancer Registry | submitter |
+| `demo-research-key` | Demo University Research Group (cervical and breast only) | consumer |
+
+Demo pseudonymisation key: `demo-pseudonymisation-key-not-for-real-data`.
+
+Other commands: `npm test` runs the test suite. `npm run reset-demo` reloads the demo data. `npm run build:pages` builds the static dashboard.
+
+### Submitting from a provider's site
+
+```bash
+PSEUDONYM_KEY=demo-pseudonymisation-key-not-for-real-data node scripts/submit.js --file public/samples/standard-template.csv --key demo-lahore-key --dry-run
+```
+
+```bash
+PSEUDONYM_KEY=... node scripts/pull.js --source https://emr.hospital.local/fhir --key <API key> --since 2026-01-01
+```
+
+The column layout is described in [docs/data-template.md](docs/data-template.md).
 
 ### Settings
 
 | Env var | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
-| `DATA_FILE` | `data/store.json` | Where resources are stored |
-| `REGISTRY_API_KEY` | unset | If set, all staff and FHIR endpoints need `Authorization: Bearer <key>`. The public stats endpoint stays open. |
+| `STORE` | `sqlite` | `sqlite`, `json` or `memory` |
+| `COUNTRY` | `pk` | Country pack in `config/countries/` |
+| `DEMO` | on | `DEMO=0` starts empty, without demo organisations |
+| `ADMIN_API_KEY` | unset | Creates an admin organisation for this key on start |
+| `PSEUDONYM_KEY` | — | Submission kit only: the key from RHEAP's key custodian |
+| `REAL_DATA` | unset | Submission kit only: `1` removes the test-data label (real data under agreement only) |
 
-## Screening rules
+## API
 
-Defined in [`src/rules.js`](src/rules.js), parameters in [`src/config.js`](src/config.js).
+| Method and path | Role | Purpose |
+| --- | --- | --- |
+| `GET /api/public/stats` | public | Suppressed statistics for all programmes |
+| `GET /api/public/country` | public | Country pack (regions, parameters) |
+| `POST /fhir` | submitter | De-identified FHIR `transaction` Bundle |
+| `GET /api/facility/alerts` | facility | Active alerts for the facility's people |
+| `GET /api/facility/worklist?programme=&status=` | facility | Worklist |
+| `GET /api/export?programme=` | consumer | k-anonymous NDJSON extract |
+| `GET /api/admin/organizations`, `POST` | admin | List or create organisations (API key shown once) |
+| `GET /api/admin/imports` | admin | Provenance of every import |
+| `GET /api/admin/audit` | admin | Audit log |
+| `GET /fhir/{type}[/{id}]` | admin | Raw pseudonymised FHIR resources |
 
-| Situation | Outcome | Next due | Alert |
-| --- | --- | --- | --- |
-| Aged under 25 or over 64 | Not eligible | — | none |
-| Eligible, no screen on record | Overdue | from 25th birthday | `never-screened` |
-| HPV negative (or cytology NILM) | Routine recall | +3 years if 25–49, +5 years if 50–64 | — |
-| HPV positive, cytology NILM | Early recall | +12 months | — |
-| HPV invalid / cytology unsatisfactory | Repeat | +3 months | — |
-| Abnormal cytology, or HPV positive with no triage | Abnormal | refer for colposcopy | `abnormal-result` |
-| …still no colposcopy after 42 days | Abnormal | — | `follow-up-overdue` (high priority) |
-| Colposcopy recorded after an abnormal result | Followed up | +12 months | alert closes |
-| Past due date | Overdue | — | `overdue` |
-| Due within 90 days | Due soon | — | none (invitation window) |
-
-Abnormal results keep their alert even after a woman ages out of the programme.
-Rules re-run whenever a resource is added, at start-up, daily, and on
-`POST /api/rules/run`.
+Authenticate with `Authorization: Bearer <API key>`. Errors are FHIR `OperationOutcome`s.
 
 ## FHIR model
 
 | Concept | Resource | Coding |
 | --- | --- | --- |
-| Woman on the register | `Patient` | `gender = female`, registry identifier, `address.district` |
-| HPV test | `Observation` | LOINC `21440-3`; value SNOMED `10828004` positive / `260385009` negative / `125154007` unsatisfactory |
-| Cervical cytology | `Observation` | LOINC `10524-7`; value from a local Bethesda category code system (NILM, ASC-US, LSIL, ASC-H, HSIL, AGC, SCC, UNSAT) |
-| Colposcopy | `Procedure` | SNOMED `392003006` |
-| Alert | `Flag` | local `screening-alert` code system, `flag-priority` extension |
+| Person (de-identified) | `Patient` | Pseudonym and source-record identifiers; birth month; district and province |
+| Screening result | `Observation` | LOINC 21440-3 (HPV), 10524-7 (cytology), 24606-6 (mammography), 29771-3 (FIT); local codes for VIA, clinical breast exam, oral exam and BI-RADS values |
+| Follow-up | `Procedure` | SNOMED CT 392003006 (colposcopy), 73761001 (colonoscopy); local codes for breast and oral assessment |
+| Cancer diagnosis | `Condition` | ICD-O-3 topography (bodySite) and morphology (code) |
+| Opt-out | `Consent` | provision deny |
+| Alert | `Flag` | local alert codes plus programme; `flag-priority` extension |
+| Organisation and agreement | `Organization` | roles, agreement extension, hashed API key |
+| Import record | `Provenance` | agreement as policy |
+| Access log | `AuditEvent` | |
 
-Local code systems live under `https://example.org/cervical-registry/fhir/…`.
-A real deployment should replace these with its national profiles and verify
-every terminology binding.
-
-### API
-
-FHIR (JSON, `application/fhir+json`):
-
-- `GET /fhir/metadata`
-- `GET /fhir/{Patient|Observation|Procedure|Flag}?patient=&status=&identifier=&_count=`
-- `GET /fhir/{type}/{id}`
-- `POST /fhir/{Patient|Observation|Procedure}`: validated, returns `201` with `Location`. Errors come back as `OperationOutcome`. `Flag` is read-only: the rules engine owns it.
-
-Convenience endpoints used by the staff screens:
-
-- `POST /api/register` `{given, family, birthDate, district}`
-- `POST /api/results` `{patientId, date, hpv?, cytology?}`
-- `POST /api/follow-up` `{patientId, date}`
-- `GET /api/worklist?status=overdue`
-- `GET /api/alerts`
-- `POST /api/rules/run`
-- `GET /api/public/stats` (public, anonymised)
-
-## Anonymisation on the public dashboard
-
-- Only aggregate counts by age band and district; no names, IDs, dates of birth or individual dates.
-- Any count from 1 to 4 is shown as `<5`; a whole group with fewer than 5 eligible women is hidden, and a percentage is hidden whenever it would reveal a suppressed count.
-- Limitation: this is simple cell suppression. Combining several tables can still allow some counts to be worked out (differencing). A production system needs a proper statistical disclosure control review.
-
-A static copy of the dashboard can be built with `npm run build:pages` (writes
-`site/`). The included GitHub Actions workflow runs the tests and publishes it to
-GitHub Pages on every push to `main`.
+Terminology bindings must be verified against a terminology server and national profiles before production.
 
 ## Layout
 
 ```
-src/
-  config.js     rule parameters and suppression threshold
-  fhir.js       code systems, resource builders, validation
-  rules.js      pure rules engine (status, due date, alerts)
-  registry.js   ties rules to the store, syncs Flags, builds public stats
-  store.js      in-memory FHIR store persisted to one JSON file
-  synthetic.js  seeded synthetic population
-  app.js        HTTP routes (FHIR, staff API, public stats, static files)
-  server.js     entry point
-public/         dashboard and staff screens (plain HTML/JS)
-scripts/        reset-demo, build-pages
-test/           node:test suites
+config/countries/pk.json   Pakistan country pack: CNIC format, regions, programme parameters, thresholds
+src/programmes/            One module per programme: tests, codes, follow-up, classification
+src/rules.js               Generic rules engine
+src/ingest/                CSV parsing, layout mappings, pseudonymisation, FHIR bundle builder (also runs in the browser)
+src/connectors/fhir.js     Pull connector for source FHIR servers
+src/registry.js            Ingest, alerts, facility views, statistics, extracts
+src/auth.js                Organisations, API keys, roles, agreements
+src/kanon.js               k-anonymity for extracts
+src/store.js               In-memory indexed store with SQLite or JSON persistence
+src/app.js, src/server.js  HTTP layer
+public/                    Dashboard, facility portal, admin pages, sample files
+scripts/                   Submission kit, FHIR pull, demo reset, static build
+docs/                      Pakistan context, agreement and DPIA templates, data template
 ```
 
-## Not done (yet)
+## Adding a country
 
-This is a prototype. Before anything real it would need: proper user accounts
-and audit logging, a production FHIR server (e.g. HAPI FHIR), national FHIR
-profiles and terminology, invitation/letter workflows, data-protection and
-clinical-safety assessments, and a formal disclosure-control review of the
-dashboard.
+Copy `config/countries/pk.json`, set the national ID format, regions, programme parameters and thresholds, and start with `COUNTRY=<code>`. No code changes are needed.
 
-## Licence
+## Roadmap after the MVP
 
-[MIT](LICENSE)
+- Trusted-third-party linkage so providers no longer hold the pseudonymisation key
+- DHIS2 connector; more mappings as registries join
+- User accounts with SSO/MFA for facility staff; Urdu interface
+- Production deployment on a FHIR server (e.g. HAPI FHIR on PostgreSQL) hosted in Pakistan
+- Automated retention and purge; formal statistical disclosure control review
+
+## Contributing and security
+
+Issues and pull requests are welcome. Never include real patient data in issues, tests or sample files. See [SECURITY.md](SECURITY.md) to report vulnerabilities.
