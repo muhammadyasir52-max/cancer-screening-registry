@@ -125,8 +125,28 @@ test('no hidden statistic can be recovered by subtraction', async () => {
     check(p.byAgeBand, p.totals, `${p.id} age`);
     check(p.byProvince, p.totals, `${p.id} provinces`);
     for (const pr of p.byProvince) check(p.byDistrict.filter((d) => d.province === pr.province), pr, `${p.id} ${pr.province}`);
+    // The four latest-result counts partition "screened in the last 12 months".
+    const outcomes = Object.values(p.outcomesLast12Months);
+    const hidden = outcomes.filter((v) => v === null).length;
+    if (p.totals.screenedLast12Months !== null && hidden === 1) leaks.push(`${p.id} outcomes: one hidden part under a visible total`);
   }
   assert.deepEqual(leaks, []);
+});
+
+test('cascade and monthly volumes are present and suppressed', async () => {
+  const registry = new Registry(new Store(), { country: pk, today });
+  await seedDemo(registry, { count: 600 });
+  const t = pk.suppressionThreshold;
+  for (const p of registry.publicStats().programmes) {
+    assert.equal(p.monthly.length, 12, p.id);
+    const values = [...p.monthly.map((m) => m.screens), ...['screened', 'abnormal', 'followedUp', 'diagnosed'].map((k) => p.cascade[k])];
+    for (const v of values) assert.ok(v === null || v === 0 || v >= t, `${p.id}: unsuppressed small count ${v}`);
+    const c = p.cascade;
+    if (c.screened !== null && c.abnormal !== null) assert.ok(c.abnormal <= c.screened);
+    if (c.abnormal !== null && c.followedUp !== null) assert.ok(c.followedUp <= c.abnormal);
+  }
+  const cervical = registry.publicStats().programmes.find((p) => p.id === 'cervical');
+  assert.equal(cervical.coverageTarget.percent, 70);
 });
 
 test('public statistics and extracts carry no identifiers and extracts are k-anonymous', async () => {

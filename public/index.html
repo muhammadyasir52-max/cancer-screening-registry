@@ -3,70 +3,79 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cancer Screening Registry</title>
+  <title>Cancer Screening Dashboard</title>
+  <meta name="description" content="National cancer screening registry: anonymised public dashboard (synthetic demonstration data).">
   <link rel="stylesheet" href="app.css">
 </head>
-<body data-stats-url="api/public/stats">
-  <header>
-    <div class="wrap bar">
+<body data-stats-url="api/public/stats" data-page="dashboard">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar"></header>
+  <main id="main" class="wrap">
+    <div class="page-head">
       <div>
-        <h1>National Cancer Screening Registry</h1>
-        <div class="muted" id="country-line">Public dashboard · anonymised totals</div>
+        <h1 id="title">National Cancer Screening Registry</h1>
+        <p id="subtitle">Public dashboard · anonymised totals</p>
       </div>
-      <nav class="site-nav"><a href="portal">Facility portal</a><a href="admin">Administration</a></nav>
+      <div class="chips" id="meta" aria-label="Registry summary"></div>
     </div>
-  </header>
-  <main class="wrap">
-    <div class="banner">
-      <strong>Demonstration with synthetic data.</strong> No real patients. Figures are anonymised totals; any count from 1 to
-      <span class="threshold-minus">4</span> is shown as “&lt;<span class="threshold">5</span>”, and percentages that would reveal a hidden count are hidden too.
+
+    <div class="banner" role="note">
+      <span aria-hidden="true">ⓘ</span>
+      <span><strong>Demonstration with synthetic data. No real patients.</strong> All figures are anonymised totals; any count from 1 to <span class="threshold-minus">4</span> is shown as “&lt;<span class="threshold">5</span>”, and figures that would let a hidden count be worked out are hidden too.</span>
     </div>
 
     <div class="tabs" id="programme-tabs" role="tablist" aria-label="Screening programme"></div>
 
-    <section class="grid" id="kpis" aria-label="Headline figures"></section>
+    <section class="section grid kpis" id="kpis" aria-label="Headline figures" aria-live="polite"></section>
 
-    <section class="cols">
+    <section class="section grid cols-3-2">
       <div class="card">
-        <h2>Coverage by age band</h2>
+        <div class="card-head"><div><h2>Screening cascade</h2><p id="cascade-note">People screened in the last 24 months, and what happened next</p></div></div>
+        <div id="cascade"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h2>Screens per month</h2><p>Screening episodes recorded, last 12 months</p></div></div>
+        <div id="monthly"></div>
+      </div>
+    </section>
+
+    <section class="section grid cols-2">
+      <div class="card">
+        <div class="card-head"><div><h2>Coverage by age band</h2><p>Share of eligible people whose screening is up to date</p></div></div>
         <div id="age"></div>
       </div>
       <div class="card">
-        <h2>Coverage by province</h2>
+        <div class="card-head"><div><h2>Coverage by province</h2><p>Share of eligible people whose screening is up to date</p></div></div>
         <div id="province"></div>
       </div>
     </section>
 
-    <section class="cols">
+    <section class="section card">
+      <div class="card-head">
+        <div><h2>Districts</h2><p>Coverage shaded from low (light) to high (dark)</p></div>
+        <label class="inline">Province <select id="province-filter"></select></label>
+      </div>
+      <div id="districts"></div>
+    </section>
+
+    <section class="section grid cols-2">
       <div class="card">
-        <h2>Results of screens in the last 12 months</h2>
+        <div class="card-head"><div><h2>Latest results</h2><p>Outcome of each person's most recent screen in the last 12 months</p></div></div>
         <div id="outcomes"></div>
       </div>
       <div class="card">
-        <div class="bar">
-          <h2>Districts</h2>
-          <label class="inline">Province
-            <select id="province-filter"></select>
-          </label>
+        <div class="card-head"><div><h2>How this registry protects data</h2></div></div>
+        <div class="tiles">
+          <div class="tile"><div class="icon" aria-hidden="true">🔒</div><div><h3>De-identified at source</h3><p>Hospitals remove names, phone numbers and CNICs on their own computers. The registry receives a coded ID, birth month, sex and district.</p></div></div>
+          <div class="tile"><div class="icon" aria-hidden="true">🔗</div><div><h3>Complements existing registries</h3><p>Cancer registries keep running and share diagnoses, linked by coded ID, so screening can be judged by outcomes.</p></div></div>
+          <div class="tile"><div class="icon" aria-hidden="true">📝</div><div><h3>Every flow under agreement</h3><p>Data moves only under signed agreements, and every access is logged.</p></div></div>
+          <div class="tile"><div class="icon" aria-hidden="true">📊</div><div><h3>Anonymised data out</h3><p>Public figures hide small counts. Approved researchers receive only k-anonymous extracts.</p></div></div>
         </div>
-        <div class="table-scroll"><table id="district-table"></table></div>
       </div>
     </section>
-
-    <section class="card">
-      <h2>How this registry handles data</h2>
-      <ul class="plain">
-        <li><strong>De-identified at the source.</strong> Hospitals and registries strip names, phone numbers and ID numbers on their own computers. The national registry only receives a keyed pseudonym, birth month, sex and district.</li>
-        <li><strong>Complements existing registries.</strong> Population cancer registries keep running; their diagnoses are linked by pseudonym so screening can be evaluated against outcomes.</li>
-        <li><strong>Every flow under an agreement.</strong> Organisations send or take data only under a signed data-sharing agreement, and every access is logged.</li>
-        <li><strong>Anonymised data out.</strong> This page shows suppressed totals. Approved researchers receive k-anonymous extracts only.</li>
-      </ul>
-    </section>
-    <p class="muted" id="generated"></p>
+    <p class="muted section" id="generated"></p>
   </main>
-  <footer class="wrap">
-    Open-source software owned by RHEAP and developed by BYTEBUZ. Built on HL7 FHIR R4. MIT licence.
-  </footer>
-  <script src="dashboard.js"></script>
+  <footer class="site"></footer>
+  <script type="module" src="dashboard.js"></script>
 </body>
 </html>

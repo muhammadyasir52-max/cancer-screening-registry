@@ -2,11 +2,11 @@
 // every programme, keeps alerts (Flags) in sync, routes them to facilities, and
 // produces anonymised statistics and extracts.
 
-import { evaluate, isoDate, STATUS, OUTCOMES } from './rules.js';
+import { evaluate, episodesFor, addMonths, isoDate, STATUS, OUTCOMES } from './rules.js';
 import { programmes, programmeList, identifyObservation, identifyProcedure, programmeForSite } from './programmes/index.js';
 import {
   buildFlag, buildProvenance, buildAuditEvent, flagCode, flagProgramme, districtOf, provinceOf,
-  pseudonymOf, sourceRecordsOf, directIdentifierProblems, systems, codeIn,
+  pseudonymOf, sourceRecordsOf, directIdentifierProblems, systems, codeIn, qualityOf, importCountsOf,
 } from './fhir.js';
 import { agreementCovers, agreementOf, describeOrg, rolesOf } from './auth.js';
 import { anonymise, fiveYearBand } from './kanon.js';
@@ -102,7 +102,7 @@ export class Registry {
    * Apply a de-identified FHIR transaction Bundle from an organisation.
    * All-or-nothing: any problem rejects the whole Bundle.
    */
-  ingestTransaction(bundle, org, { source = 'api' } = {}) {
+  ingestTransaction(bundle, org, { source = 'api', quality = null } = {}) {
     const today = this.todayIso();
     if (bundle?.resourceType !== 'Bundle' || bundle.type !== 'transaction') throw new IngestError(['Body must be a FHIR transaction Bundle']);
     if (!agreementCovers(org, today)) throw new IngestError([`No active data-sharing agreement for ${org.name}`]);
@@ -133,12 +133,15 @@ export class Registry {
     if (problems.length) throw new IngestError(problems);
 
     // 2. Write, as one database transaction.
-    const result = this.store.transaction(() => this.#write(entries, org, source));
+    // Integrity: flag a file this organisation has already submitted.
+    const duplicateFile = Boolean(quality?.fileSha256) && this.store.all('Provenance').some((pv) =>
+      pv.agent?.[0]?.who?.reference === `Organization/${org.id}` && qualityOf(pv)?.fileSha256 === quality.fileSha256);
+    const result = this.store.transaction(() => this.#write(entries, org, source, quality, duplicateFile));
     this.store.save();
     return result;
   }
 
-  #write(entries, org, source) {
+  #write(entries, org, source, quality, duplicateFile) {
     const orgRef = { reference: `Organization/${org.id}` };
     const resolved = new Map();
     const touched = new Set();
@@ -191,10 +194,12 @@ export class Registry {
       response.push({ response: { status: '201 Created', location: `${saved.resourceType}/${saved.id}` } });
     }
 
-    if (targets.length) {
-      this.store.create(buildProvenance({ targets, orgId: org.id, agreementRef: agreementOf(org).reference, recorded: new Date().toISOString(), source, counts }));
+    if (duplicateFile) counts.duplicateFile = true;
+    if (targets.length || quality) {
+      this.store.create(buildProvenance({ targets, orgId: org.id, agreementRef: agreementOf(org).reference, recorded: new Date().toISOString(), source, counts, quality }));
     }
     for (const id of touched) this.refreshPatient(id);
+    this.version++;
     return { resourceType: 'Bundle', type: 'transaction-response', entry: response, summary: counts };
   }
 
@@ -263,7 +268,8 @@ export class Registry {
       return {
         id: pv.id, recorded: pv.recorded, organization: this.store.read('Organization', orgId)?.name || orgId,
         agreement: pv.policy?.[0]?.replace('urn:agreement:', ''), source: pv.entity?.[0]?.what?.display,
-        counts: JSON.parse(pv.extension?.[0]?.valueString || '{}'),
+        counts: importCountsOf(pv),
+        qualityScore: qualityOf(pv)?.score ?? null,
       };
     }).sort((a, b) => b.recorded.localeCompare(a.recorded));
   }
@@ -317,6 +323,48 @@ export class Registry {
     return anonymise(rows, this.country.kAnonymity);
   }
 
+  // Screening cascade over the last 24 months and screening volume per month
+  // for the last 12, both suppressed. Cascade steps are nested, not a partition.
+  #activity(prog, today, t) {
+    const from24 = addMonths(today, -24);
+    const months = [];
+    for (let i = 11; i >= 0; i--) months.push(addMonths(`${today.slice(0, 7)}-01`, -i).slice(0, 7));
+    const perMonth = Object.fromEntries(months.map((m) => [m, 0]));
+    const steps = { screened: 0, abnormal: 0, followedUp: 0, diagnosed: 0 };
+
+    for (const p of this.store.all('Patient')) {
+      if (this.isOptedOut(p.id)) continue;
+      const eps = episodesFor(prog, this.store.forPatient('Observation', p.id));
+      for (const ep of eps) if (ep.date.slice(0, 7) in perMonth) perMonth[ep.date.slice(0, 7)]++;
+      const inWindow = eps.filter((ep) => ep.date >= from24 && ep.date <= today);
+      if (!inWindow.length) continue;
+      steps.screened++;
+      const firstAbnormal = inWindow.filter((ep) => ep.outcome === 'abnormal').map((ep) => ep.date).sort()[0];
+      if (!firstAbnormal) continue;
+      steps.abnormal++;
+      const followed = this.store.forPatient('Procedure', p.id)
+        .some((pr) => pr.status === 'completed' && identifyProcedure(pr)?.id === prog.id && pr.performedDateTime.slice(0, 10) >= firstAbnormal);
+      if (followed) steps.followedUp++;
+      const diagnosed = this.store.forPatient('Condition', p.id)
+        .some((c) => programmeForSite(codeIn(c.bodySite?.[0], systems.icdo3))?.id === prog.id && (c.onsetDateTime || '').slice(0, 10) >= firstAbnormal);
+      if (diagnosed) steps.diagnosed++;
+    }
+    return {
+      cascade: { windowMonths: 24, ...Object.fromEntries(Object.entries(steps).map(([k, v]) => [k, suppress(v, t)])) },
+      monthly: months.map((m) => ({ month: m, screens: suppress(perMonth[m], t) })),
+    };
+  }
+
+  // National data-quality index: mean quality score of submissions in the last 90 days.
+  qualityIndex() {
+    const since = new Date(this.today().getTime() - 90 * 86400000).toISOString();
+    const scores = this.store.all('Provenance')
+      .filter((pv) => pv.recorded >= since)
+      .map((pv) => qualityOf(pv)?.score)
+      .filter((s) => typeof s === 'number');
+    return { submissions: scores.length, score: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null };
+  }
+
   // Aggregate statistics for the public dashboard, with small-number suppression.
   publicStats() {
     const today = this.todayIso();
@@ -332,7 +380,6 @@ export class Registry {
       const bands = [];
       for (let lo = min; lo <= max; lo += 10) bands.push([lo, Math.min(lo + 9, max)]);
       const recent = all.filter((r) => r.e.lastScreen && r.e.lastScreen > yearAgo);
-      const outcomes = Object.fromEntries(OUTCOMES.map((o) => [o, suppress(recent.filter((r) => r.e.lastOutcome === o).length, t)]));
       const provinces = Object.keys(this.country.regions);
       const totals = {
         ...summarise(eligible, t),
@@ -345,13 +392,23 @@ export class Registry {
       const byDistrict = provinces.flatMap((pr) => this.country.regions[pr].map((d) => ({
         province: pr, district: d, ...summarise(eligible.filter((r) => r.district === d), t),
       })));
+      // The four outcomes partition the people screened in the last 12 months.
+      const outcomeCells = OUTCOMES.map((o) => ({ outcome: o, count: suppress(recent.filter((r) => r.e.lastOutcome === o).length, t) }));
       // Complementary suppression, so hidden cells cannot be recovered by subtraction.
       protectAgainstDifferencing(byAgeBand, totals);
       protectAgainstDifferencing(byProvince, totals);
       for (const pr of byProvince) protectAgainstDifferencing(byDistrict.filter((d) => d.province === pr.province), pr);
+      protectAgainstDifferencing(outcomeCells, { count: totals.screenedLast12Months }, ['count']);
+      const { cascade, monthly } = this.#activity(prog, today, t);
+      // "Abnormal" minus "awaiting follow-up" approximates "followed up", so if
+      // exactly one of those two is hidden, hide the cascade's abnormal count too.
+      if ((cascade.followedUp === null) !== (totals.abnormalAwaitingFollowUp === null)) cascade.abnormal = null;
       return {
         id: prog.id, name: prog.name, eligibleAge: { min, max }, sexes: prog.sexes,
-        totals, byAgeBand, byProvince, byDistrict, outcomesLast12Months: outcomes,
+        coverageTarget: this.params(prog.id).coverageTarget || null,
+        totals, byAgeBand, byProvince, byDistrict,
+        outcomesLast12Months: Object.fromEntries(outcomeCells.map((c) => [c.outcome, c.count])),
+        cascade, monthly,
       };
     });
 
@@ -363,6 +420,7 @@ export class Registry {
       suppressionThreshold: t,
       contributingOrganisations: sources.size,
       peopleOnRegister: suppress(this.store.all('Patient').length, t),
+      dataQuality: this.qualityIndex(),
       programmes: out,
     };
     this.statsCache = { version: this.version, today, stats };
@@ -377,8 +435,8 @@ const COUNT_KEYS = ['eligible', 'covered', 'overdue', 'neverScreened'];
 //   (total minus the visible parts), so a second part is hidden;
 // - a hidden total whose parts are all visible would be revealed by summing
 //   them, so one part is hidden.
-export function protectAgainstDifferencing(parts, total) {
-  for (const key of COUNT_KEYS) {
+export function protectAgainstDifferencing(parts, total, keys = COUNT_KEYS) {
+  for (const key of keys) {
     const hiddenCount = () => parts.filter((p) => p[key] === null).length;
     const hideSmallest = () => {
       const visible = parts.filter((p) => p[key] !== null && p[key] > 0).sort((a, b) => a[key] - b[key]);
@@ -392,7 +450,7 @@ export function protectAgainstDifferencing(parts, total) {
       while (hiddenCount() === 1 && hideSmallest());
     }
   }
-  for (const p of parts) if (p.covered === null || p.eligible === null) p.coveragePct = null;
+  for (const p of parts) if ('coveragePct' in p && (p.covered === null || p.eligible === null)) p.coveragePct = null;
 }
 
 // Counts from 1 to threshold-1 become null ("fewer than N"); zero stays zero.

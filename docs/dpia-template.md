@@ -33,6 +33,8 @@ the processing changes.
 | Wrong person linked (weak pseudonym) | | | Weak links flagged; prefer CNIC | |
 | Missed follow-up due to data delay | | | Alerts complement, not replace, provider clinical processes | |
 | Loss of availability | | | Backups; SQLite WAL; production FHIR server | |
+| AI assistant (if switched on) receives personal data | | | Off by default; receives only a whitelist-validated aggregate summary; zero data retention contract | |
+| Wrong data-quality decision at source (e.g. wrong duplicate removed) | | | Suggested fixes only; staff decide; unresolved critical rows excluded, not altered | |
 
 ## 4. Consultation
 [Providers, patient representatives, ethics committee, legal counsel]

@@ -26,7 +26,9 @@ The Node server is not meant to face the internet directly. In production:
 - Audit entry for every authenticated request, including refusals.
 - Security headers on every response (CSP, nosniff, frame denial, no referrer).
 - Request body size limit; static file serving restricted to `public/` and an allow-list of browser modules.
-- No third-party runtime dependencies.
+- Quality summaries are whitelist-validated (known keys, numbers and enums only; 8 KB limit) before they are stored or shown to the AI assistant.
+- CSV exports neutralise spreadsheet formula injection (cells starting with `=`, `+`, `-` or `@`).
+- No third-party runtime dependencies. The optional AI assistant's SDK is loaded only when it is switched on.
 
 ## Known limitations of the MVP
 

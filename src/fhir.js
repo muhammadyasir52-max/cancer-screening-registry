@@ -165,7 +165,12 @@ export function buildOrganization({ name, roles, agreement, keyHash }) {
   };
 }
 
-export function buildProvenance({ targets, orgId, agreementRef, recorded, source, counts }) {
+const IMPORT_COUNTS = `${BASE}/StructureDefinition/import-counts`;
+const QUALITY_SUMMARY = `${BASE}/StructureDefinition/quality-summary`;
+
+export function buildProvenance({ targets, orgId, agreementRef, recorded, source, counts, quality }) {
+  const extension = [{ url: IMPORT_COUNTS, valueString: JSON.stringify(counts) }];
+  if (quality) extension.push({ url: QUALITY_SUMMARY, valueString: JSON.stringify(quality) });
   return {
     resourceType: 'Provenance',
     target: targets.map((reference) => ({ reference })),
@@ -174,9 +179,16 @@ export function buildProvenance({ targets, orgId, agreementRef, recorded, source
     activity: { coding: [{ system: systems.provenanceActivity, code: 'CREATE' }] },
     agent: [{ who: orgRef(orgId) }],
     entity: [{ role: 'source', what: { display: source || 'submission' } }],
-    extension: [{ url: `${BASE}/StructureDefinition/import-counts`, valueString: JSON.stringify(counts) }],
+    extension,
   };
 }
+
+const extJson = (resource, url) => {
+  const v = resource.extension?.find((e) => e.url === url)?.valueString;
+  return v ? JSON.parse(v) : null;
+};
+export const importCountsOf = (provenance) => extJson(provenance, IMPORT_COUNTS) || {};
+export const qualityOf = (provenance) => extJson(provenance, QUALITY_SUMMARY);
 
 export function buildAuditEvent({ orgId, action, path, outcome, recorded, entity }) {
   return {

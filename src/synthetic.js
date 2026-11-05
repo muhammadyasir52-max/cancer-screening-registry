@@ -97,14 +97,20 @@ export function generateRecords(country, { count = 2500, seed = 2026, today = ne
       out[src].push({ ...person, recordId: ids[src], ...extra });
     };
 
-    if (chance(0.005)) rec(home, { event: 'opt-out', eventDate: addDays(now, -Math.floor(rand() * 300)) });
+    // A few people opt out; they have no screening recorded afterwards.
+    if (chance(0.005)) {
+      rec(home, { event: 'opt-out', eventDate: addDays(now, -Math.floor(rand() * 300)) });
+      continue;
+    }
 
     for (const [programme, s] of Object.entries(SCREEN)) {
       if (!s.sexes.includes(sex) || age < s.minAge || !chance(s.uptake)) continue;
       // Some people are screened by a second source, which the pseudonym links.
       const src = chance(0.05) ? pick(['lahore', 'karachi', 'kp'].filter((x) => x !== home)) : home;
       if (src === 'kp' && programme === 'colorectal') continue; // not in the KP unit's agreement
-      const date = addDays(now, -Math.floor(rand() ** 2 * 6 * 365));
+      // Recent screens are more common (linearly falling density over 6 years),
+      // without piling many records onto a single day.
+      const date = addDays(now, -Math.floor((1 - Math.sqrt(1 - rand())) * 6 * 365));
       const results = screenResult(programme, rand, pick);
       for (const r of results) rec(src, { event: 'screen', programme, eventDate: date, test: r.test, result: r.result });
 

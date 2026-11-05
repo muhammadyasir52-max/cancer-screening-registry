@@ -21,6 +21,7 @@
   },
   "programmes": {
     "cervical": {
+      "coverageTarget": { "percent": 70, "label": "WHO 2030 elimination target (reference)" },
       "eligibleAge": { "min": 25, "max": 64 },
       "intervals": [
         { "minAge": 25, "maxAge": 49, "months": 36 },

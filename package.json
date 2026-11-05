@@ -14,5 +14,8 @@
     "build:pages": "node scripts/build-pages.js",
     "test": "node --test"
   },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^1.5.0"
+  },
   "keywords": ["fhir", "hl7", "cancer-screening", "registry", "public-health", "pakistan", "privacy", "pseudonymisation"]
 }

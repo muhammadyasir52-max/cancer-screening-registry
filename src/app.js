@@ -9,12 +9,14 @@ import { fileURLToPath } from 'node:url';
 import { RESOURCE_TYPES } from './store.js';
 import { authenticate, hasRole, rolesOf, agreementCovers, createOrganization, describeOrg } from './auth.js';
 import { programmes } from './programmes/index.js';
+import { validateQualitySummary } from './quality/summary.js';
+import { createAssistant } from './assistant.js';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const PUBLIC_DIR = join(ROOT, 'public');
 const SRC_DIR = join(ROOT, 'src');
-// Source modules the browser may load (the de-identification pipeline).
-const BROWSER_MODULES = /^(fhir\.js|programmes\/\w+\.js|ingest\/\w+\.js)$/;
+// Source modules the browser may load (de-identification and quality checks).
+const BROWSER_MODULES = /^(fhir\.js|programmes\/\w+\.js|ingest\/\w+\.js|quality\/\w+\.js)$/;
 const FHIR_JSON = 'application/fhir+json; charset=utf-8';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml' };
 const SECURITY_HEADERS = {
@@ -28,7 +30,7 @@ class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-export function createApp(registry) {
+export function createApp(registry, { assistant = createAssistant() } = {}) {
   const { store, country } = registry;
 
   const require = (org, ...roles) => {
@@ -46,6 +48,7 @@ export function createApp(registry) {
     // --- Public -----------------------------------------------------------
     if (method === 'GET' && path === '/api/public/stats') return json(res, 200, registry.publicStats());
     if (method === 'GET' && path === '/api/public/country') return json(res, 200, country);
+    if (method === 'GET' && path === '/api/public/assistant') return json(res, 200, { enabled: assistant.enabled });
     if (method === 'GET' && path === '/fhir/metadata') return json(res, 200, capabilityStatement(), FHIR_JSON);
     if (method === 'GET' && path.startsWith('/lib/')) return serveModule(res, path.slice(5));
     if (!path.startsWith('/fhir') && !path.startsWith('/api')) return serveStatic(res, path);
@@ -63,9 +66,26 @@ export function createApp(registry) {
 
     if (method === 'POST' && path === '/fhir') {
       require(org, 'submitter');
+      const quality = parseQualityHeader(req.headers['x-quality-summary']);
       const body = await readJson(req);
       const source = String(req.headers['x-submission-source'] || 'api').slice(0, 120);
-      return json(res, 200, registry.ingestTransaction(body, org, { source }), FHIR_JSON);
+      return json(res, 200, registry.ingestTransaction(body, org, { source, quality }), FHIR_JSON);
+    }
+
+    if (method === 'POST' && path === '/api/assistant') {
+      require(org, 'submitter', 'facility');
+      if (!assistant.enabled) {
+        throw new HttpError(503, 'The AI assistant is not activated in this MVP. It will be enabled after funding and governance approval.');
+      }
+      const body = await readJson(req, 16_000);
+      let summary;
+      try {
+        summary = validateQualitySummary(body.summary);
+      } catch (err) {
+        throw new HttpError(422, err.message);
+      }
+      const question = typeof body.question === 'string' ? body.question.slice(0, 500) : '';
+      return json(res, 200, await assistant.ask(summary, question));
     }
 
     const fhir = path.match(/^\/fhir\/([A-Za-z]+)(?:\/([\w-]+))?$/);
@@ -232,11 +252,22 @@ function json(res, status, body, type = 'application/json; charset=utf-8') {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req) {
+// The aggregate quality summary sent alongside a submission (never rows).
+function parseQualityHeader(value) {
+  if (!value) return null;
+  if (value.length > 8192) throw new HttpError(413, 'X-Quality-Summary too large');
+  try {
+    return validateQualitySummary(JSON.parse(value));
+  } catch (err) {
+    throw new HttpError(422, err instanceof SyntaxError ? 'X-Quality-Summary is not valid JSON' : err.message);
+  }
+}
+
+async function readJson(req, limit = 50_000_000) {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > 50_000_000) throw new HttpError(413, 'Body too large');
+    if (raw.length > limit) throw new HttpError(413, 'Body too large');
   }
   try {
     return JSON.parse(raw || '{}');

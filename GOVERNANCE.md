@@ -58,6 +58,30 @@ and send diagnoses so screening can be evaluated against outcomes.
    percentage that would reveal them. Extracts are generalised and suppressed
    to k-anonymity (`src/kanon.js`).
 
+## Data quality at source
+
+Every submission is checked on the provider's machine before de-identification
+([docs/data-quality.md](docs/data-quality.md)).
+
+- **Who resolves queries:** provider staff. Their decisions and reasons stay at the source.
+- **What RHEAP receives:** only an aggregate quality summary (counts and scores). It is whitelist-validated on the server and stored on the import's `Provenance`.
+- **What RHEAP does with it:** monitors quality per source and supports providers whose scores fall.
+
+## AI and data quality
+
+The Data Quality Studio includes an optional AI assistant (Anthropic Claude).
+**It is switched off in the MVP** and must stay off until all of these are in place:
+
+1. RHEAP approves its use, and the DPIA is updated to cover it.
+2. A contract with the AI provider covers data processing, including **zero data retention** where available, and data-residency requirements under Pakistani law are confirmed.
+3. It is enabled only by the operator (`ASSISTANT_ENABLED=1` on the server), never by providers.
+
+The design limits what the assistant can see:
+
+- It receives only the validated aggregate quality summary (check names, counts, scores) and a staff question.
+- It never receives rows, names, ID numbers, record numbers, dates or the file hash. The same whitelist validator runs before every request.
+- Its advice is guidance for data staff, not clinical advice. If it declines or is unavailable, the built-in explanation is shown instead.
+
 ## Pseudonymisation key
 
 - Generated and held by RHEAP's **key custodian** (a named role, not BYTEBUZ).
@@ -107,3 +131,5 @@ and send diagnoses so screening can be evaluated against outcomes.
 - [ ] Independent security test
 - [ ] Statistical disclosure control review of the dashboard and extracts
 - [ ] Synthetic demo organisations and keys removed (`DEMO=0`, fresh database)
+- [ ] Data-quality positivity ranges set from national laboratory baselines
+- [ ] AI assistant: stays off unless the conditions in "AI and data quality" are met

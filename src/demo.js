@@ -5,6 +5,7 @@
 import { createOrganization } from './auth.js';
 import { generateRecords } from './synthetic.js';
 import { buildSubmission } from './ingest/pipeline.js';
+import { checkQuality } from './kit.js';
 import { addDays, isoDate } from './rules.js';
 
 export const DEMO_SECRET = 'demo-pseudonymisation-key-not-for-real-data';
@@ -40,9 +41,11 @@ export async function seedDemo(registry, { count = 2500, seed = 2026 } = {}) {
   const totals = {};
   // Screening sources first, then the cancer registry, as would happen in practice.
   for (const src of ['lahore', 'karachi', 'kp', 'registry']) {
-    const { bundle, errors } = await buildSubmission(records[src], { secret: DEMO_SECRET, country, orgId: orgs[src].id });
+    // Same path as a real source: quality checks, then de-identification.
+    const { resolved, summary: quality } = checkQuality(records[src], { country });
+    const { bundle, errors } = await buildSubmission(resolved.records, { secret: DEMO_SECRET, country, orgId: orgs[src].id });
     if (errors.length) throw new Error(`Synthetic data for ${src} failed validation: ${JSON.stringify(errors[0])}`);
-    totals[src] = registry.ingestTransaction(bundle, orgs[src], { source: 'synthetic demo data' }).summary;
+    totals[src] = registry.ingestTransaction(bundle, orgs[src], { source: 'synthetic demo data', quality }).summary;
   }
   store.save();
   return { orgs, totals };

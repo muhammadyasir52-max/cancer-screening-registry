@@ -47,7 +47,7 @@ export async function buildSubmission(records, { secret, country, orgId, synthet
   const stripped = { names: 0, nationalIds: 0, phones: 0, datesOfBirth: 0 };
 
   for (const [i, rec] of records.entries()) {
-    const line = i + 2; // header is line 1
+    const line = rec._line ?? i + 2; // header is line 1
     const problems = checkRecord(rec, country);
     const pid = problems.length ? null : await pseudonymFor(rec, secret, country);
     if (!problems.length && !pid) problems.push('needs a valid national ID, or name and date of birth');

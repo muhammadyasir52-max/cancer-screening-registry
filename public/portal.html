@@ -6,75 +6,138 @@
   <title>Registry Facility Portal</title>
   <link rel="stylesheet" href="app.css">
 </head>
-<body>
-  <header>
-    <div class="wrap bar">
+<body data-page="portal">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar"></header>
+  <main id="main" class="wrap">
+    <div class="page-head">
       <div>
         <h1>Facility portal</h1>
-        <div class="muted" id="who">Not signed in</div>
+        <p id="who">Sign in with your organisation's API key.</p>
       </div>
-      <nav class="site-nav"><a href="./">Public dashboard</a><a href="admin">Administration</a></nav>
+      <div class="actions" id="org-badges"></div>
     </div>
-  </header>
-  <main class="wrap">
-    <div class="banner"><strong>Synthetic demo data.</strong> No real patients. Demo keys: <code>demo-lahore-key</code>, <code>demo-karachi-key</code>, <code>demo-kp-key</code>, <code>demo-registry-key</code>.</div>
 
-    <section class="card" id="signin">
-      <h2>Sign in with your organisation's API key</h2>
+    <div class="banner" role="note"><span aria-hidden="true">ⓘ</span>
+      <span><strong>Synthetic demo data.</strong> Demo keys: <code>demo-lahore-key</code>, <code>demo-karachi-key</code>, <code>demo-kp-key</code>, <code>demo-registry-key</code>.</span></div>
+
+    <section class="card" id="signin" style="max-width:560px">
+      <div class="card-head"><div><h2>Sign in</h2><p>Your key is kept only in this browser tab.</p></div></div>
       <form id="signin-form" class="row">
-        <label>API key <input id="api-key" type="password" autocomplete="off" required></label>
-        <button>Sign in</button>
+        <label>Organisation API key <input id="api-key" type="password" autocomplete="off" required></label>
+        <button class="btn">Sign in</button>
       </form>
-      <div class="msg" id="signin-msg" role="status"></div>
+      <div class="msg" id="signin-msg" role="alert"></div>
     </section>
 
     <div id="app" class="hidden">
-      <div class="tabs" id="tabs" role="tablist">
-        <button type="button" role="tab" data-tab="alerts" aria-selected="true">Alerts</button>
-        <button type="button" role="tab" data-tab="worklist" aria-selected="false">Worklist</button>
-        <button type="button" role="tab" data-tab="submit" aria-selected="false">Submit data</button>
-        <button type="button" class="secondary" id="signout" style="margin-left:auto">Sign out</button>
+      <section class="grid kpis" id="overview" aria-label="Overview"></section>
+
+      <div class="section actions" style="justify-content:space-between">
+        <div class="tabs" id="tabs" role="tablist" aria-label="Portal sections">
+          <button type="button" role="tab" data-tab="alerts" aria-selected="true">Alerts</button>
+          <button type="button" role="tab" data-tab="worklist" aria-selected="false">Worklist</button>
+          <button type="button" role="tab" data-tab="submit" aria-selected="false">Submit data</button>
+        </div>
+        <button type="button" class="btn ghost" id="signout">Sign out</button>
       </div>
 
-      <section class="card" data-panel="alerts">
-        <h2>Active alerts for people your facility submitted <span class="muted" id="alert-count"></span></h2>
-        <p class="muted">The registry knows people only by pseudonym. Use your own record number to find the person in your system.</p>
-        <div class="table-scroll"><table id="alerts"></table></div>
-      </section>
-
-      <section class="card hidden" data-panel="worklist">
-        <div class="row" style="margin-bottom:12px">
-          <label>Programme <select id="wl-programme"></select></label>
-          <label>Status
-            <select id="wl-status">
-              <option value="">All eligible</option><option value="abnormal">Abnormal</option><option value="overdue">Overdue</option>
-              <option value="due-soon">Due soon</option><option value="up-to-date">Up to date</option><option value="diagnosed">Diagnosed</option>
-            </select>
-          </label>
-        </div>
-        <div class="table-scroll"><table id="worklist"></table></div>
-        <p class="muted" id="wl-note"></p>
-      </section>
-
-      <section class="card hidden" data-panel="submit">
-        <h2>Submit data</h2>
-        <p>Your file is read and de-identified <strong>in this browser</strong>. Names, phone numbers and ID numbers never leave this computer: only a keyed pseudonym, birth month, sex, district and the screening events are sent.</p>
-        <form id="submit-form">
-          <div class="row">
-            <label>File layout <select id="mapping"></select></label>
-            <label>Export file (CSV or tab separated) <input id="file" type="file" accept=".csv,.tsv,.txt" required></label>
-            <label>Pseudonymisation key <input id="secret" type="password" autocomplete="off" required placeholder="from the RHEAP key custodian"></label>
+      <section class="section card" data-panel="alerts" role="tabpanel">
+        <div class="card-head">
+          <div><h2>Active alerts</h2><p>People your facility submitted. The registry knows them only by a coded ID; use your own record number to find them.</p></div>
+          <div class="actions">
+            <label class="inline">Programme <select id="al-programme"><option value="">All</option></select></label>
+            <label class="inline">Priority <select id="al-priority"><option value="">All</option><option value="PH">High</option><option value="PM">Medium</option></select></label>
           </div>
-          <p class="muted">Sample files: <a href="samples/standard-template.csv" download>standard template</a> ·
-            <a href="samples/example-hospital.csv" download>example hospital export</a> ·
-            <a href="samples/canreg5-export.tsv" download>CanReg5 registry export</a>. Demo key: <code>demo-pseudonymisation-key-not-for-real-data</code></p>
-          <div class="row"><button>Preview de-identified data</button><button type="button" id="send" disabled>Send to registry</button></div>
-        </form>
-        <div class="msg" id="submit-msg" role="status"></div>
-        <div id="preview"></div>
+        </div>
+        <div id="alerts"></div>
+      </section>
+
+      <section class="section card hidden" data-panel="worklist" role="tabpanel">
+        <div class="card-head">
+          <div><h2>Worklist</h2><p>Who is due, overdue or awaiting follow-up.</p></div>
+          <div class="actions">
+            <label class="inline">Programme <select id="wl-programme"></select></label>
+            <label class="inline">Status
+              <select id="wl-status">
+                <option value="">All eligible</option><option value="abnormal">Abnormal</option><option value="overdue">Overdue</option>
+                <option value="due-soon">Due soon</option><option value="up-to-date">Up to date</option><option value="diagnosed">Diagnosed</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div id="worklist"></div>
+      </section>
+
+      <section class="section card hidden" data-panel="submit" role="tabpanel">
+        <ol class="stepper" id="stepper" aria-label="Submission steps">
+          <li data-step="1" aria-current="step">Choose file</li>
+          <li data-step="2">Check quality</li>
+          <li data-step="3">Review de-identified data</li>
+          <li data-step="4">Send</li>
+        </ol>
+
+        <div data-stepview="1">
+          <h2>Choose a file</h2>
+          <p class="muted">Everything happens <strong>in this browser</strong>: the file is checked and de-identified on this computer. Names, phone numbers and CNICs are never sent.</p>
+          <form id="file-form">
+            <div class="row">
+              <label>File layout <select id="mapping"></select></label>
+              <label>Export file (CSV or tab separated) <input id="file" type="file" accept=".csv,.tsv,.txt" required></label>
+              <label>Pseudonymisation key <input id="secret" type="password" autocomplete="off" required placeholder="from the RHEAP key custodian"></label>
+            </div>
+            <p class="muted">Sample files: <a href="samples/messy-hospital-export.csv" download>messy hospital export (shows the quality checks)</a> ·
+              <a href="samples/standard-template.csv" download>standard template</a> · <a href="samples/example-hospital.csv" download>example hospital export</a> ·
+              <a href="samples/canreg5-export.tsv" download>CanReg5 registry export</a>. Demo key: <code>demo-pseudonymisation-key-not-for-real-data</code></p>
+            <div class="actions"><button class="btn">Check data quality</button></div>
+          </form>
+        </div>
+
+        <div data-stepview="2" class="hidden">
+          <div class="grid cols-3-2">
+            <div>
+              <div class="card-head" style="align-items:center">
+                <div style="display:flex;gap:16px;align-items:center" id="score-head"></div>
+              </div>
+              <div class="actions" id="q-filters" role="group" aria-label="Filter queries"></div>
+              <div id="queries" aria-live="polite"></div>
+            </div>
+            <div>
+              <div class="card" style="position:sticky;top:76px">
+                <div class="card-head"><div><h2>Quality by dimension</h2></div></div>
+                <div id="dimensions"></div>
+                <div id="send-tally" class="info-box" role="status"></div>
+                <div class="card" id="assistant" style="margin-top:12px;box-shadow:none"></div>
+              </div>
+            </div>
+          </div>
+          <div class="actions section">
+            <button type="button" class="btn secondary" data-goto="1">Back</button>
+            <button type="button" class="btn secondary" id="export-queries">Export query list (CSV)</button>
+            <button type="button" class="btn" id="to-review">Continue to review</button>
+          </div>
+        </div>
+
+        <div data-stepview="3" class="hidden">
+          <h2>Review what will be sent</h2>
+          <div id="review-summary"></div>
+          <div id="review-errors"></div>
+          <div id="review-table" class="section"></div>
+          <div class="actions section">
+            <button type="button" class="btn secondary" data-goto="2">Back</button>
+            <button type="button" class="btn" id="send">Send to registry</button>
+          </div>
+        </div>
+
+        <div data-stepview="4" class="hidden">
+          <h2>Submission complete</h2>
+          <div id="send-result"></div>
+          <div class="actions section"><button type="button" class="btn" data-goto="1">Submit another file</button></div>
+        </div>
       </section>
     </div>
   </main>
+  <footer class="site"></footer>
   <script type="module" src="portal.js"></script>
 </body>
 </html>

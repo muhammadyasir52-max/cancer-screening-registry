@@ -107,6 +107,46 @@ test('an organisation whose agreement has expired loses all access', async () =>
   assert.equal((await get('/api/me', apiKey)).status, 403);
 });
 
+test('quality summaries are validated, stored with the import, and repeated files are flagged', async () => {
+  const records = applyMapping(parseDelimited(readFileSync(new URL('../public/samples/messy-hospital-export.csv', import.meta.url), 'utf8')), mappings.standard);
+  const first = await submitRecords({ records, registryUrl: base, apiKey: 'demo-lahore-key', secret: DEMO_SECRET, country: pk, source: 'messy.csv', fileSha256: 'b'.repeat(64) });
+  assert.ok(first.response.created > 0);
+  assert.equal(first.response.duplicateFile, undefined);
+  const again = await submitRecords({ records, registryUrl: base, apiKey: 'demo-lahore-key', secret: DEMO_SECRET, country: pk, source: 'messy.csv', fileSha256: 'b'.repeat(64) });
+  assert.equal(again.response.duplicateFile, true);
+  const imports = await (await get('/api/admin/imports', 'demo-admin-key')).json();
+  assert.equal(imports[0].qualityScore, first.quality.summary.score);
+  assert.ok(imports[0].counts.duplicateFile);
+  const stats = await (await get('/api/public/stats')).json();
+  assert.ok(stats.dataQuality.submissions >= 2);
+
+  const bad = await fetch(`${base}/fhir`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer demo-lahore-key', 'X-Quality-Summary': JSON.stringify({ schema: 'quality-summary/1', patientName: 'Ayesha' }) },
+    body: JSON.stringify({ resourceType: 'Bundle', type: 'transaction', entry: [] }),
+  });
+  assert.equal(bad.status, 422);
+  const tooBig = await fetch(`${base}/fhir`, { method: 'POST', headers: { Authorization: 'Bearer demo-lahore-key', 'X-Quality-Summary': 'x'.repeat(9000) }, body: '{}' });
+  assert.equal(tooBig.status, 413);
+
+  const blocked = await submitRecords({ records, registryUrl: base, apiKey: 'demo-lahore-key', secret: DEMO_SECRET, country: pk, source: 'messy.csv', blockOnCritical: true });
+  assert.equal(blocked.blocked, true);
+  assert.equal(blocked.response, null);
+});
+
+test('the AI assistant is switched off in the MVP', async () => {
+  assert.deepEqual(await (await get('/api/public/assistant')).json(), { enabled: false });
+  const res = await fetch(`${base}/api/assistant`, { method: 'POST', headers: { Authorization: 'Bearer demo-lahore-key' }, body: '{}' });
+  assert.equal(res.status, 503);
+  assert.equal((await fetch(`${base}/api/assistant`, { method: 'POST', body: '{}' })).status, 401);
+});
+
+test('browser modules for quality checks are served; server modules are not', async () => {
+  assert.equal((await get('/lib/quality/index.js')).status, 200);
+  assert.equal((await get('/lib/assistant.js')).status, 404);
+  assert.equal((await get('/lib/kit.js')).status, 404);
+});
+
 test('every authenticated request is audited, including refusals', async () => {
   await get('/api/facility/alerts', 'demo-research-key');
   const log = await (await get('/api/admin/audit', 'demo-admin-key')).json();
