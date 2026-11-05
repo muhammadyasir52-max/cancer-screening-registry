@@ -86,7 +86,6 @@ async function load() {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   stats = await res.json();
   setThreshold(stats.suppressionThreshold);
-  document.querySelectorAll('.threshold').forEach((el) => { el.textContent = stats.suppressionThreshold; });
   document.querySelectorAll('.threshold-minus').forEach((el) => { el.textContent = stats.suppressionThreshold - 1; });
   $('title').textContent = `National Cancer Screening Registry · ${stats.country.name}`;
   const q = stats.dataQuality;

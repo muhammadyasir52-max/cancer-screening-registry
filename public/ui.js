@@ -6,8 +6,11 @@ export const $ = (id) => document.getElementById(id);
 
 let threshold = 5;
 export const setThreshold = (t) => { threshold = t; };
-// Suppressed counts arrive as null and are shown as "<5".
-export const fmt = (n) => (n === null || n === undefined ? `<${threshold}` : Number(n).toLocaleString('en'));
+// Hidden counts arrive as null. One neutral symbol for every hidden value: a
+// small count and a count hidden so another can't be worked out must look the
+// same, or the difference would itself reveal something.
+export const HIDDEN = '*';
+export const fmt = (n) => (n === null || n === undefined ? HIDDEN : Number(n).toLocaleString('en'));
 export const pct = (p) => (p === null || p === undefined ? '—' : `${p}%`);
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -94,7 +97,7 @@ export function columnChart(data, { partialLast = true, label = 'Screens' } = {}
     const partial = partialLast && i === data.length - 1;
     const tip = `${monthLabel(d.month)}${partial ? ' (so far)' : ''}: ${fmt(d.screens)} ${label.toLowerCase()}`;
     if (d.screens === null) {
-      svg += `<text x="${x + bw / 2}" y="${y(0) - 4}" text-anchor="middle">&lt;${threshold}</text>`;
+      svg += `<text x="${x + bw / 2}" y="${y(0) - 4}" text-anchor="middle">${HIDDEN}</text>`;
     } else if (d.screens > 0) {
       const top = y(d.screens);
       const h = y(0) - top;

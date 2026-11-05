@@ -27,7 +27,7 @@ and send diagnoses so screening can be evaluated against outcomes.
 | Direct identifiers | Name, CNIC, phone number, street address, full date of birth | **Only at the source.** Never sent to, or stored by, the national registry. The server rejects any submission that contains them. |
 | Pseudonymised data | Keyed pseudonym, source record number, birth month, sex, district, screening results, diagnoses | Central registry (encrypted at rest, access by role) |
 | Anonymised extracts | k-anonymous rows (k ≥ 5): sex, age band, province/district, year, status | Approved consumers, under a data access agreement |
-| Aggregate statistics | Counts and percentages with small-number suppression (<5) | Public |
+| Aggregate statistics | Counts and percentages with small-number suppression (<5) and complementary suppression; every hidden value is shown with the same symbol (*) | Public |
 
 ## Principles in the software
 
