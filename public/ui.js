@@ -234,6 +234,6 @@ export function chrome(page, { publicSite = false, sourceUrl = '' } = {}) {
   }
   const footer = document.querySelector('footer.site');
   if (footer) {
-    footer.innerHTML = `<div class="wrap"><span>Owned by <strong>RHEAP</strong> · Developed by <strong>BYTEBUZ</strong> · Open source (MIT) · HL7 FHIR R4</span><span>Demonstration with synthetic data only</span></div>`;
+    footer.innerHTML = `<div class="wrap"><span>Owned by <strong>RHEAP</strong> · Developed by <strong>BYTEBUZ</strong> · Open source (MIT) · HL7 FHIR R4</span></div>`;
   }
 }
