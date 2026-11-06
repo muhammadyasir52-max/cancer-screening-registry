@@ -95,7 +95,7 @@ async function load() {
     `<span class="chip"><strong>${esc(stats.contributingOrganisations)}</strong> contributing organisations</span>`,
     `<span class="chip" title="Average quality score of submissions in the last 90 days">Data quality <strong>${q?.score === null || q?.score === undefined ? '—' : `${q.score}/100`}</strong>${q?.submissions ? ` (${q.submissions} checked)` : ''}</span>`,
   ].join('');
-  $('generated').textContent = `Figures as of ${stats.generatedOn}${stats.syntheticData ? ' · synthetic demonstration data' : ''}. Coverage means eligible people whose screening is up to date. Screening ages and intervals are illustrative.`;
+  $('generated').textContent = `Figures as of ${stats.generatedOn}. Coverage means eligible people whose screening is up to date. Screening ages and intervals are illustrative.`;
 
   const provinces = [...new Set(stats.programmes[0].byDistrict.map((d) => d.province))];
   $('province-filter').innerHTML = `<option value="">All provinces</option>${provinces.map((p) => `<option>${esc(p)}</option>`).join('')}`;
